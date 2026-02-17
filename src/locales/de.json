@@ -1,0 +1,245 @@
+{
+  "app": {
+    "name": "Detector fur personenbezogene Daten",
+    "tagline": "Uberwacht deine Downloads, erkennt personenbezogene Daten und Geheimnisse und hilft dir schnell zu reagieren."
+  },
+  "common": {
+    "refresh": "Aktualisieren",
+    "close": "Schliessen",
+    "cancel": "Abbrechen",
+    "confirm": "Bestatigen"
+  },
+  "language": {
+    "label": "Sprache",
+    "en": "Englisch",
+    "fr": "Franzosisch",
+    "ar": "Arabisch",
+    "es": "Spanisch",
+    "de": "Deutsch"
+  },
+  "settings": {
+    "watching": "Uberwachte Ordner",
+    "watchingUnavailable": "Uberwachte Ordner konnten nicht geladen werden",
+    "addFolder": "Ordner hinzufugen",
+    "editFolder": "Diesen Ordner bearbeiten",
+    "removeFolder": "Diesen Ordner entfernen",
+    "addPrompt": "Ordnerpfad zum Uberwachen",
+    "editPrompt": "Neuer Ordnerpfad"
+  },
+  "menu": {
+    "title": "Menu",
+    "about": "Uber",
+    "legal": "Rechtliches",
+    "customTypes": "Benutzerdefinierte Typen",
+    "types": "Typen"
+  },
+  "custom": {
+    "add": "Typ hinzufugen",
+    "edit": "Bearbeiten",
+    "delete": "Loschen",
+    "enable": "Aktivieren",
+    "disable": "Deaktivieren",
+    "empty": "Keine benutzerdefinierten Typen.",
+    "namePrompt": "Kategoriename",
+    "riskPrompt": "Risikostufe",
+    "filenamePrompt": "Dateiname-Regex (optional)",
+    "fieldPrompt": "Feldname-Regex (optional)",
+    "valuePrompt": "Wert-Regex (optional)",
+    "deleteConfirm": "Typ {{name}} loschen?",
+    "metaRisk": "Risiko",
+    "metaFilename": "Dateiname",
+    "metaField": "Feldname",
+    "metaValue": "Wert"
+  },
+  "types": {
+    "standardTab": "Standard",
+    "customTab": "Benutzerdefiniert",
+    "standardHelp": "Standardtypen sind integriert und schreibgeschutzt. Verwende benutzerdefinierte Typen fur lokale oder fachliche Daten.",
+    "desc": {
+      "email": "E-Mail-Adressen.",
+      "phone": "Telefonnummern mit sprachabhangiger Validierung.",
+      "iban": "IBAN-Kontonummern.",
+      "credit_card": "Zahlungskarten mit Luhn-Prufung.",
+      "ip_address": "Offentliche IPv4-Adressen im relevanten Kontext.",
+      "address": "Adressen aus expliziten Adressfeldern.",
+      "postal_code": "Postleitzahlen aus dedizierten Feldern.",
+      "date_of_birth": "Geburtsbezogene Datumsangaben.",
+      "cookie": "Cookie- oder Sitzungskennungen.",
+      "user_id": "Benutzer- oder Geratekennungen.",
+      "loyalty_id": "Treuekonto-Kennungen.",
+      "digital_account": "Digitale Konto-Kennungen.",
+      "rcu_id": "RCU-Kennungen.",
+      "secret": "Technische Geheimnisse (API key, Token, Passwort).",
+      "weak_archive_encryption": "ZIP-Archive mit schwacher ZipCrypto-Verschlusselung.",
+      "file_name_signal": "Sensible Stichworter im Dateinamen."
+    }
+  },
+  "about": {
+    "description": "Diese lokale Anwendung uberwacht ausgewahlte Ordner, erkennt personenbezogene Daten und technische Geheimnisse und schlagt sichere Aufbewahrungs- oder Loschaktionen vor.",
+    "authorLabel": "Autor:",
+    "author": "badreddine",
+    "legalText": "Lizenziert unter AGPL-3.0-only. Die Analyse erfolgt lokal. Angezeigte Klartextwerte werden nicht gespeichert. Dieses Tool hilft bei der Erkennung und ersetzt kein formales Compliance-Audit."
+  },
+  "alerts": {
+    "title": "Warnungen",
+    "empty": "Noch keine Warnungen. Lade eine Datei in deinen Downloads-Ordner herunter, um zu testen.",
+    "ignored": "Ignoriert",
+    "deleted": "Geloscht",
+    "risk": "Risiko",
+    "age": "Alter"
+  },
+  "filters": {
+    "all": "Alle",
+    "selectedCount": "{{count}} ausgewählt",
+    "risk": "Risiko",
+    "type": "Typ",
+    "sort": "Sortierung",
+    "showIgnored": "Ignorierte anzeigen",
+    "sortRiskDesc": "Risiko: hoch nach niedrig",
+    "sortRiskAsc": "Risiko: niedrig nach hoch",
+    "sortRecent": "Neueste zuerst",
+    "sortType": "Typ (A-Z)"
+  },
+  "report": {
+    "title": "Bericht",
+    "select": "Wahle eine Warnung aus, um Details zu sehen.",
+    "loadError": "Bericht kann nicht angezeigt werden: {{error}}",
+    "revealUnavailable": "Keine personenbezogenen Klartextwerte fur diese Datei verfugbar.",
+    "fileName": "Dateiname",
+    "path": "Pfad",
+    "size": "Grosse",
+    "modified": "Geandert",
+    "reasons": "Warum markiert",
+    "findings": "Erkannte personenbezogene Daten",
+    "suggestion": "Vorschlag",
+    "weakEncryption": "Schwache Archivverschlusselung",
+    "weakEncryptionDesc": "Diese ZIP-Datei verwendet die veraltete ZipCrypto-Verschlusselung (schwach)."
+  },
+  "actions": {
+    "scan": "Scannen",
+    "scanRunning": "Scan lauft",
+    "scanProgress": "Scanne {{processed}} / {{total}} Dateien",
+    "stopScanConfirm": "Ein Scan lauft bereits. Jetzt stoppen?",
+    "scanRunningChoices": "Ein Scan lauft gerade. Du kannst ihn stoppen oder Warnungen bereinigen.",
+    "stopScan": "Scan stoppen",
+    "cleanAlerts": "Warnungen bereinigen",
+    "openFolder": "Ordner offnen",
+    "delete": "In den Papierkorb verschieben",
+    "ignore": "Ignorieren",
+    "unignore": "Nicht mehr ignorieren",
+    "reveal": "Alle personenbezogenen Daten anzeigen",
+    "hide": "Personenbezogene Daten ausblenden",
+    "revealOne": "Wert anzeigen",
+    "markMine": "Gehort mir",
+    "unmarkMine": "Gehort nicht mir"
+  },
+  "confirmations": {
+    "title": "Aktion bestatigen",
+    "revealTitle": "Sensible Werte anzeigen",
+    "revealBody": "Dies zeigt personenbezogene Daten auf dem Bildschirm. Sie werden nicht gespeichert, konnen aber von Personen in der Nahe gesehen werden.",
+    "deleteTitle": "Datei loschen",
+    "deleteBody": "Diese Datei in den Papierkorb verschieben?"
+  },
+  "risk": {
+    "low": "Niedrig",
+    "medium": "Mittel",
+    "high": "Hoch",
+    "critical": "Kritisch"
+  },
+  "pii": {
+    "email": "E-Mail",
+    "phone": "Telefon",
+    "iban": "IBAN",
+    "creditCard": "Zahlungskarte",
+    "frenchNir": "Franzosische NIR",
+    "ipAddress": "IP-Adresse",
+    "address": "Adresse",
+    "postalCode": "Postleitzahl",
+    "dateOfBirth": "Geburtsdatum",
+    "cookie": "Cookie / Sitzung",
+    "userId": "Benutzer-ID",
+    "loyaltyId": "Treuekonto",
+    "digitalAccount": "Digitales Konto",
+    "rcuId": "RCU-ID",
+    "secret": "Geheimnis (API key / Token / Passwort)",
+    "fileNameSignal": "Dateiname-Signal",
+    "weakArchiveEncryption": "Schwache ZIP-Verschlusselung"
+  },
+  "threshold": {
+    "24h": "24 Stunden",
+    "7j": "7 Tage",
+    "30j": "30 Tage"
+  },
+  "notifications": {
+    "newAlertTitle": "Personenbezogene Daten erkannt",
+    "newAlertBody": "Risiko: {{risk}}. {{types}}",
+    "reminderTitle": "Datei noch vorhanden ({{threshold}})",
+    "reminderBody": "Risiko: {{risk}}. Bitte loschen: {{path}}",
+    "weakZipTitle": "Schwache ZIP-Verschlusselung",
+    "weakZipBody": "Diese ZIP-Datei verwendet ZipCrypto (schwach). Bitte loschen oder mit AES erneut verschlusseln."
+  },
+  "reason": {
+    "categoryCount": "{{category}}: {{count}} Vorkommnis(se)",
+    "customCategoryCount": "Benutzerdefiniert {{category}} ({{risk}}): {{count}} Vorkommnis(se)",
+    "filenameKeyword": "Schlusselwort im Dateinamen: {{keyword}}",
+    "filenameSignal": "Dateiname-Signal (+{{bonus}})",
+    "weakZipEncryption": "Verschlusselte ZIP nutzt schwaches ZipCrypto",
+    "hashLike": "{{category}} wirkt wie ein Hash (geringeres Risiko)",
+    "fileTooLarge": "Datei zu gross zum Scannen ({{bytes}} Bytes)",
+    "notAFile": "Pfad ist keine Datei"
+  },
+  "entities": {
+    "title": "Entitatstypen",
+    "pureTitle": "PII-Entitaten (100% bestatigt)",
+    "contextualTitle": "Kontextuelle Entitaten (Bewertung)",
+    "enabled": "Aktiviert",
+    "disabled": "Deaktiviert",
+    "configure": "Konfigurieren",
+    "positiveIndicators": "Positive Indikatoren",
+    "negativeIndicators": "Negative Indikatoren",
+    "threshold": "Konfidenzschwelle",
+    "localeBadge": "Nach Region aktiviert",
+    "types": {
+      "email": "E-Mail",
+      "phone": "Telefon",
+      "iban": "IBAN",
+      "credit_card": "Kreditkarte",
+      "ip_address": "IP-Adresse",
+      "mac_address": "MAC-Adresse",
+      "bitcoin": "Bitcoin",
+      "ethereum": "Ethereum",
+      "us_ssn": "US-Sozialversicherung",
+      "us_passport": "US-Reisepass",
+      "uk_nhs": "UK-NHS-Nummer",
+      "fr_nir": "Franzosische NIR",
+      "es_dni": "Spanische DNI",
+      "de_tax_id": "Deutsche Steuer-ID",
+      "person": "Personenname",
+      "organization": "Organisation",
+      "location": "Ort"
+    },
+    "descriptions": {
+      "email": "E-Mail-Adressen mit gultigem Format",
+      "phone": "Telefonnummern im internationalen Format",
+      "iban": "Internationale Bankkontonummern",
+      "credit_card": "Zahlungskarten mit Luhn-Prufung",
+      "ip_address": "Offentliche IP-Adressen",
+      "mac_address": "MAC-Adressen",
+      "bitcoin": "Bitcoin-Adressen",
+      "ethereum": "Ethereum-Adressen",
+      "person": "Personennamen mit Kontextanalyse",
+      "organization": "Unternehmens- und Organisationsnamen",
+      "location": "Geografische Orte"
+    }
+  },
+  "debug": {
+    "title": "Debug-Modus",
+    "confidence": "Konfidenz",
+    "context": "Kontext",
+    "decision": "Entscheidung",
+    "positiveMatch": "Positive Ubereinstimmung",
+    "negativeMatch": "Negative Ubereinstimmung",
+    "shown": "Angezeigt",
+    "filtered": "Gefiltert"
+  }
+}

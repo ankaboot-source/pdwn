@@ -1,0 +1,245 @@
+{
+  "app": {
+    "name": "Détecteur de données personnelles",
+    "tagline": "Surveille vos téléchargements, détecte données personnelles et secrets, puis aide à agir rapidement."
+  },
+  "common": {
+    "refresh": "Rafraîchir",
+    "close": "Fermer",
+    "cancel": "Annuler",
+    "confirm": "Confirmer"
+  },
+  "language": {
+    "label": "Langue",
+    "en": "Anglais",
+    "fr": "Français",
+    "ar": "Arabe",
+    "es": "Espagnol",
+    "de": "Allemand"
+  },
+  "settings": {
+    "watching": "Dossiers surveillés",
+    "watchingUnavailable": "Impossible de charger les dossiers surveillés",
+    "addFolder": "Ajouter un dossier",
+    "editFolder": "Modifier ce dossier",
+    "removeFolder": "Retirer ce dossier",
+    "addPrompt": "Chemin du dossier à surveiller",
+    "editPrompt": "Nouveau chemin du dossier"
+  },
+  "menu": {
+    "title": "Menu",
+    "about": "A propos",
+    "legal": "Mentions légales",
+    "customTypes": "Types personnalisés",
+    "types": "Types"
+  },
+  "custom": {
+    "add": "Ajouter un type",
+    "edit": "Modifier",
+    "delete": "Supprimer",
+    "enable": "Activer",
+    "disable": "Desactiver",
+    "empty": "Aucun type personnalisé.",
+    "namePrompt": "Nom de la catégorie",
+    "riskPrompt": "Niveau de criticité",
+    "filenamePrompt": "Regex nom de fichier (optionnel)",
+    "fieldPrompt": "Regex nom de champ (optionnel)",
+    "valuePrompt": "Regex valeur (optionnel)",
+    "deleteConfirm": "Supprimer le type {{name}} ?",
+    "metaRisk": "Criticité",
+    "metaFilename": "Nom fichier",
+    "metaField": "Nom champ",
+    "metaValue": "Valeur"
+  },
+  "types": {
+    "standardTab": "Standards",
+    "customTab": "Personnalisés",
+    "standardHelp": "Les types standards sont intégrés et en lecture seule. Utilisez les types personnalisés pour vos besoins métier ou locaux.",
+    "desc": {
+      "email": "Adresses e-mail.",
+      "phone": "Numéros de téléphone avec validation selon la langue.",
+      "iban": "Numéros IBAN.",
+      "credit_card": "Numéros de carte bancaire validés par Luhn.",
+      "ip_address": "Adresses IPv4 publiques en contexte pertinent.",
+      "address": "Adresses détectées dans des champs d'adresse.",
+      "postal_code": "Codes postaux détectés dans des champs dédiés.",
+      "date_of_birth": "Dates liées à la naissance.",
+      "cookie": "Identifiants de cookie ou de session.",
+      "user_id": "Identifiants utilisateur ou appareil.",
+      "loyalty_id": "Identifiants de fidélité.",
+      "digital_account": "Identifiants de compte digital.",
+      "rcu_id": "Identifiants RCU.",
+      "secret": "Secrets techniques (clé API, token, mot de passe).",
+      "weak_archive_encryption": "Archives ZIP utilisant le chiffrement faible ZipCrypto.",
+      "file_name_signal": "Mots sensibles détectés dans le nom de fichier."
+    }
+  },
+  "about": {
+    "description": "Cette application locale surveille vos dossiers, détecte les données personnelles et secrets techniques, puis vous propose des actions de suppression ou de conservation maîtrisée.",
+    "authorLabel": "Auteur :",
+    "author": "badreddine",
+    "legalText": "Licence AGPL-3.0-only. Les analyses sont locales. Les valeurs révélées ne sont pas persistées. Cette application fournit une aide à la détection et ne remplace pas un audit de conformité."
+  },
+  "alerts": {
+    "title": "Alertes",
+    "empty": "Aucune alerte pour l'instant. Télécharge un fichier dans ton dossier Téléchargements pour tester.",
+    "ignored": "Ignoré",
+    "deleted": "Supprimé",
+    "risk": "Criticité",
+    "age": "Âge"
+  },
+  "filters": {
+    "all": "Tous",
+    "selectedCount": "{{count}} sélectionnés",
+    "risk": "Criticité",
+    "type": "Type",
+    "sort": "Tri",
+    "showIgnored": "Afficher les alertes ignorées",
+    "sortRiskDesc": "Criticité : élevée vers faible",
+    "sortRiskAsc": "Criticité : faible vers élevée",
+    "sortRecent": "Plus récents",
+    "sortType": "Type (A-Z)"
+  },
+  "report": {
+    "title": "Rapport",
+    "select": "Sélectionne une alerte pour voir les détails.",
+    "loadError": "Impossible d'afficher le rapport: {{error}}",
+    "revealUnavailable": "Aucune donnée personnelle en clair n'est disponible pour ce fichier.",
+    "fileName": "Nom du fichier",
+    "path": "Chemin",
+    "size": "Taille",
+    "modified": "Modifié",
+    "reasons": "Pourquoi c'est détecté",
+    "findings": "Données personnelles identifiées",
+    "suggestion": "Suggestion",
+    "weakEncryption": "Chiffrement d'archive faible",
+    "weakEncryptionDesc": "Ce ZIP utilise le chiffrement hérité ZipCrypto (faible)."
+  },
+  "actions": {
+    "scan": "Scanner",
+    "scanRunning": "Scan en cours",
+    "scanProgress": "Scan de {{processed}} / {{total}} fichiers",
+    "stopScanConfirm": "Un scan est en cours. Voulez-vous l'arreter maintenant ?",
+    "scanRunningChoices": "Un scan est en cours. Vous pouvez l'arrêter ou nettoyer les alertes.",
+    "stopScan": "Arrêter le scan",
+    "cleanAlerts": "Nettoyer les alertes",
+    "openFolder": "Ouvrir le dossier",
+    "delete": "Mettre à la corbeille",
+    "ignore": "Ignorer",
+    "unignore": "Ne plus ignorer",
+    "reveal": "Montrer toutes les données personnelles",
+    "hide": "Masquer les données personnelles",
+    "revealOne": "Afficher la valeur",
+    "markMine": "C'est à moi",
+    "unmarkMine": "Pas à moi"
+  },
+  "confirmations": {
+    "title": "Confirmer l'action",
+    "revealTitle": "Afficher des valeurs sensibles",
+    "revealBody": "Cela affichera des données personnelles à l'écran. Les valeurs ne sont pas sauvegardées, mais peuvent être vues par quelqu'un à proximité.",
+    "deleteTitle": "Supprimer le fichier",
+    "deleteBody": "Mettre ce fichier à la corbeille ?"
+  },
+  "risk": {
+    "low": "Faible",
+    "medium": "Moyenne",
+    "high": "Élevée",
+    "critical": "Critique"
+  },
+  "pii": {
+    "email": "E-mail",
+    "phone": "Téléphone",
+    "iban": "IBAN",
+    "creditCard": "Carte bancaire",
+    "frenchNir": "NIR",
+    "ipAddress": "Adresse IP",
+    "address": "Adresse",
+    "postalCode": "Code postal",
+    "dateOfBirth": "Date de naissance",
+    "cookie": "Cookie / session",
+    "userId": "Identifiant utilisateur",
+    "loyaltyId": "Compte fidélité",
+    "digitalAccount": "Compte digital",
+    "rcuId": "ID RCU",
+    "secret": "Secret (API key / token / mot de passe)",
+    "fileNameSignal": "Signal de nom de fichier",
+    "weakArchiveEncryption": "Chiffrement ZIP faible"
+  },
+  "threshold": {
+    "24h": "24h",
+    "7j": "7j",
+    "30j": "30j"
+  },
+  "notifications": {
+    "newAlertTitle": "Données personnelles détectées",
+    "newAlertBody": "Criticité : {{risk}}. {{types}}",
+    "reminderTitle": "Fichier conservé ({{threshold}})",
+    "reminderBody": "Criticité : {{risk}}. Pense à le supprimer : {{path}}",
+    "weakZipTitle": "Chiffrement ZIP faible",
+    "weakZipBody": "Ce ZIP utilise ZipCrypto (faible). Pense à le supprimer ou à le rechiffrer en AES."
+  },
+  "reason": {
+    "categoryCount": "{{category}}: {{count}} occurrence(s)",
+    "customCategoryCount": "Type personnalisé {{category}} ({{risk}}): {{count}} occurrence(s)",
+    "filenameKeyword": "Mot-clé dans le nom : {{keyword}}",
+    "filenameSignal": "Signal de nom de fichier (+{{bonus}})",
+    "weakZipEncryption": "ZIP chiffré avec ZipCrypto (faible)",
+    "hashLike": "{{category}} : valeurs ressemblant à des hash (risque moindre)",
+    "fileTooLarge": "Fichier trop volumineux pour analyse ({{bytes}} octets)",
+    "notAFile": "Le chemin n'est pas un fichier"
+  },
+  "entities": {
+    "title": "Types d'entités",
+    "pureTitle": "Entités PII (100% confirmées)",
+    "contextualTitle": "Entités contextuelles (Scoring)",
+    "enabled": "Activé",
+    "disabled": "Désactivé",
+    "configure": "Configurer",
+    "positiveIndicators": "Indicateurs positifs",
+    "negativeIndicators": "Indicateurs négatifs",
+    "threshold": "Seuil de confiance",
+    "localeBadge": "Activé par région",
+    "types": {
+      "email": "Email",
+      "phone": "Téléphone",
+      "iban": "IBAN",
+      "credit_card": "Carte bancaire",
+      "ip_address": "Adresse IP",
+      "mac_address": "Adresse MAC",
+      "bitcoin": "Bitcoin",
+      "ethereum": "Ethereum",
+      "us_ssn": "Sécurité sociale US",
+      "us_passport": "Passeport US",
+      "uk_nhs": "Numéro NHS UK",
+      "fr_nir": "NIR Français",
+      "es_dni": "DNI Espagnol",
+      "de_tax_id": "Numéro fiscal Allemand",
+      "person": "Nom de personne",
+      "organization": "Organisation",
+      "location": "Lieu"
+    },
+    "descriptions": {
+      "email": "Adresses email avec format valide",
+      "phone": "Numéros de téléphone au format international",
+      "iban": "Numéros de compte bancaire international",
+      "credit_card": "Cartes de paiement validées avec Luhn",
+      "ip_address": "Adresses IP publiques",
+      "mac_address": "Adresses MAC",
+      "bitcoin": "Adresses Bitcoin",
+      "ethereum": "Adresses Ethereum",
+      "person": "Noms de personnes avec analyse contextuelle",
+      "organization": "Noms d'entreprises et organisations",
+      "location": "Lieux géographiques"
+    }
+  },
+  "debug": {
+    "title": "Mode Debug",
+    "confidence": "Confiance",
+    "context": "Contexte",
+    "decision": "Décision",
+    "positiveMatch": "Correspondance positive",
+    "negativeMatch": "Correspondance négative",
+    "shown": "Affiché",
+    "filtered": "Filtré"
+  }
+}

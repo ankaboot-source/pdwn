@@ -1,0 +1,36 @@
+{
+  "name": "personal-data-detector-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint .",
+    "fmt": "biome check --write .",
+    "fmt:check": "biome ci .",
+    "i18n:check": "bun run scripts/check-i18n.ts",
+    "check:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings && cargo test --manifest-path src-tauri/Cargo.toml",
+    "check": "bun run typecheck && bun run fmt:check && bun run i18n:check && bun run check:rust",
+    "prepare": "lefthook install || true"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-notification": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "i18next": "^24.2.2",
+    "i18next-browser-languagedetector": "^8.1.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@biomejs/biome": "^1.9.4",
+    "lefthook": "^1.6.12",
+    "vite": "^6.0.3",
+    "typescript": "~5.6.2"
+  }
+}

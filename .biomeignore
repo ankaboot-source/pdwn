@@ -1,0 +1,8 @@
+# Build artifacts
+dist/
+node_modules/
+
+# Rust artifacts / generated schema
+src-tauri/target/
+src-tauri/gen/
+src-tauri/capabilities/gen/

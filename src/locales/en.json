@@ -1,0 +1,245 @@
+{
+  "app": {
+    "name": "Personal Data Detector",
+    "tagline": "Watches your downloads, detects personal data and secrets, then helps you act fast."
+  },
+  "common": {
+    "refresh": "Refresh",
+    "close": "Close",
+    "cancel": "Cancel",
+    "confirm": "Confirm"
+  },
+  "language": {
+    "label": "Language",
+    "en": "English",
+    "fr": "French",
+    "ar": "Arabic",
+    "es": "Spanish",
+    "de": "German"
+  },
+  "settings": {
+    "watching": "Watching",
+    "watchingUnavailable": "Unable to load watched folders",
+    "addFolder": "Add folder",
+    "editFolder": "Edit this folder",
+    "removeFolder": "Remove this folder",
+    "addPrompt": "Folder path to watch",
+    "editPrompt": "New folder path"
+  },
+  "menu": {
+    "title": "Menu",
+    "about": "About",
+    "legal": "Legal",
+    "customTypes": "Custom types",
+    "types": "Types"
+  },
+  "custom": {
+    "add": "Add type",
+    "edit": "Edit",
+    "delete": "Delete",
+    "enable": "Enable",
+    "disable": "Disable",
+    "empty": "No custom type yet.",
+    "namePrompt": "Category name",
+    "riskPrompt": "Risk level",
+    "filenamePrompt": "Filename regex (optional)",
+    "fieldPrompt": "Field-name regex (optional)",
+    "valuePrompt": "Value regex (optional)",
+    "deleteConfirm": "Delete type {{name}}?",
+    "metaRisk": "Risk",
+    "metaFilename": "Filename",
+    "metaField": "Field name",
+    "metaValue": "Value"
+  },
+  "types": {
+    "standardTab": "Standard",
+    "customTab": "Custom",
+    "standardHelp": "Standard types are built-in and read-only. Use custom types for local or business-specific data.",
+    "desc": {
+      "email": "Email addresses.",
+      "phone": "Phone numbers with locale-aware checks.",
+      "iban": "International bank account numbers (IBAN).",
+      "credit_card": "Payment card numbers validated with Luhn.",
+      "ip_address": "Public IPv4 addresses in meaningful context.",
+      "address": "Address-like values from explicit address fields.",
+      "postal_code": "Postal code values found in postal fields.",
+      "date_of_birth": "Dates linked to birth-related fields.",
+      "cookie": "Cookie or session identifiers.",
+      "user_id": "User or device identifiers.",
+      "loyalty_id": "Loyalty account identifiers.",
+      "digital_account": "Digital account identifiers.",
+      "rcu_id": "RCU identifiers.",
+      "secret": "Secrets like API keys, tokens, and passwords.",
+      "weak_archive_encryption": "ZIP archives using weak ZipCrypto encryption.",
+      "file_name_signal": "Sensitive keywords found in file names."
+    }
+  },
+  "about": {
+    "description": "This local application watches selected folders, detects personal data and technical secrets, then suggests safe retention or deletion actions.",
+    "authorLabel": "Author:",
+    "author": "badreddine",
+    "legalText": "Licensed under AGPL-3.0-only. Scanning is local. Revealed values are not persisted. This tool helps detection and does not replace a formal compliance audit."
+  },
+  "alerts": {
+    "title": "Alerts",
+    "empty": "No alerts yet. Download a file in your Downloads folder to test.",
+    "ignored": "Ignored",
+    "deleted": "Deleted",
+    "risk": "Risk",
+    "age": "Age"
+  },
+  "filters": {
+    "all": "All",
+    "selectedCount": "{{count}} selected",
+    "risk": "Risk",
+    "type": "Type",
+    "sort": "Sort",
+    "showIgnored": "Show ignored",
+    "sortRiskDesc": "Risk: high to low",
+    "sortRiskAsc": "Risk: low to high",
+    "sortRecent": "Most recent",
+    "sortType": "Type (A-Z)"
+  },
+  "report": {
+    "title": "Report",
+    "select": "Select an alert to see details.",
+    "loadError": "Unable to display report: {{error}}",
+    "revealUnavailable": "Clear personal values are not available for this file.",
+    "fileName": "File name",
+    "path": "Path",
+    "size": "Size",
+    "modified": "Modified",
+    "reasons": "Why this was flagged",
+    "findings": "Detected personal data",
+    "suggestion": "Suggestion",
+    "weakEncryption": "Weak archive encryption",
+    "weakEncryptionDesc": "This ZIP uses legacy ZipCrypto encryption (weak)."
+  },
+  "actions": {
+    "scan": "Scan",
+    "scanRunning": "Scan running",
+    "scanProgress": "Scanning {{processed}} / {{total}} files",
+    "stopScanConfirm": "A scan is running. Stop it now?",
+    "scanRunningChoices": "A scan is currently running. You can stop the scan or clean alerts.",
+    "stopScan": "Stop scan",
+    "cleanAlerts": "Clean alerts",
+    "openFolder": "Open folder",
+    "delete": "Move to trash",
+    "ignore": "Ignore",
+    "unignore": "Stop ignoring",
+    "reveal": "Show all personal data",
+    "hide": "Hide personal data",
+    "revealOne": "Reveal value",
+    "markMine": "This is mine",
+    "unmarkMine": "Not mine"
+  },
+  "confirmations": {
+    "title": "Please confirm",
+    "revealTitle": "Show sensitive values",
+    "revealBody": "This will display personal data on screen. Values are not saved, but can be seen by anyone nearby.",
+    "deleteTitle": "Delete file",
+    "deleteBody": "Move this file to the trash?"
+  },
+  "risk": {
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "critical": "Critical"
+  },
+  "pii": {
+    "email": "Email",
+    "phone": "Phone",
+    "iban": "IBAN",
+    "creditCard": "Payment card",
+    "frenchNir": "French NIR",
+    "ipAddress": "IP address",
+    "address": "Address",
+    "postalCode": "Postal code",
+    "dateOfBirth": "Date of birth",
+    "cookie": "Cookie / session",
+    "userId": "User ID",
+    "loyaltyId": "Loyalty account",
+    "digitalAccount": "Digital account",
+    "rcuId": "RCU ID",
+    "secret": "Secret (API key / token / password)",
+    "fileNameSignal": "File name signal",
+    "weakArchiveEncryption": "Weak ZIP encryption"
+  },
+  "threshold": {
+    "24h": "24 hours",
+    "7j": "7 days",
+    "30j": "30 days"
+  },
+  "notifications": {
+    "newAlertTitle": "Personal data detected",
+    "newAlertBody": "Risk: {{risk}}. {{types}}",
+    "reminderTitle": "File still kept ({{threshold}})",
+    "reminderBody": "Risk: {{risk}}. Consider deleting it: {{path}}",
+    "weakZipTitle": "Weak ZIP encryption",
+    "weakZipBody": "This ZIP uses ZipCrypto (weak). Consider deleting or re-encrypting it with AES."
+  },
+  "reason": {
+    "categoryCount": "{{category}}: {{count}} occurrence(s)",
+    "customCategoryCount": "Custom {{category}} ({{risk}}): {{count}} occurrence(s)",
+    "filenameKeyword": "Keyword in file name: {{keyword}}",
+    "filenameSignal": "File name signal (+{{bonus}})",
+    "weakZipEncryption": "Encrypted ZIP uses weak ZipCrypto",
+    "hashLike": "{{category}} values look like hashes (lower risk)",
+    "fileTooLarge": "File too large to scan ({{bytes}} bytes)",
+    "notAFile": "Path is not a regular file"
+  },
+  "entities": {
+    "title": "Entity Types",
+    "pureTitle": "PII Entities (100% Confirmed)",
+    "contextualTitle": "Contextual Entities (Scoring)",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "configure": "Configure",
+    "positiveIndicators": "Positive indicators",
+    "negativeIndicators": "Negative indicators",
+    "threshold": "Confidence threshold",
+    "localeBadge": "Activated by region",
+    "types": {
+      "email": "Email",
+      "phone": "Phone",
+      "iban": "IBAN",
+      "credit_card": "Credit Card",
+      "ip_address": "IP Address",
+      "mac_address": "MAC Address",
+      "bitcoin": "Bitcoin",
+      "ethereum": "Ethereum",
+      "us_ssn": "US Social Security",
+      "us_passport": "US Passport",
+      "uk_nhs": "UK NHS Number",
+      "fr_nir": "French NIR",
+      "es_dni": "Spanish DNI",
+      "de_tax_id": "German Tax ID",
+      "person": "Person Name",
+      "organization": "Organization",
+      "location": "Location"
+    },
+    "descriptions": {
+      "email": "Email addresses with valid format",
+      "phone": "Phone numbers with international format",
+      "iban": "International bank account numbers",
+      "credit_card": "Payment cards validated with Luhn",
+      "ip_address": "Public IP addresses",
+      "mac_address": "MAC addresses",
+      "bitcoin": "Bitcoin addresses",
+      "ethereum": "Ethereum addresses",
+      "person": "Names of persons with context analysis",
+      "organization": "Company and organization names",
+      "location": "Geographic locations"
+    }
+  },
+  "debug": {
+    "title": "Debug Mode",
+    "confidence": "Confidence",
+    "context": "Context",
+    "decision": "Decision",
+    "positiveMatch": "Positive match",
+    "negativeMatch": "Negative match",
+    "shown": "Shown",
+    "filtered": "Filtered"
+  }
+}

@@ -1,0 +1,245 @@
+{
+  "app": {
+    "name": "Detector de datos personales",
+    "tagline": "Vigila tus descargas, detecta datos personales y secretos, y te ayuda a actuar rapido."
+  },
+  "common": {
+    "refresh": "Actualizar",
+    "close": "Cerrar",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar"
+  },
+  "language": {
+    "label": "Idioma",
+    "en": "Ingles",
+    "fr": "Frances",
+    "ar": "Arabe",
+    "es": "Espanol",
+    "de": "Aleman"
+  },
+  "settings": {
+    "watching": "Carpetas vigiladas",
+    "watchingUnavailable": "No se pudieron cargar las carpetas vigiladas",
+    "addFolder": "Agregar carpeta",
+    "editFolder": "Editar esta carpeta",
+    "removeFolder": "Quitar esta carpeta",
+    "addPrompt": "Ruta de la carpeta a vigilar",
+    "editPrompt": "Nueva ruta de la carpeta"
+  },
+  "menu": {
+    "title": "Menu",
+    "about": "Acerca de",
+    "legal": "Aviso legal",
+    "customTypes": "Tipos personalizados",
+    "types": "Tipos"
+  },
+  "custom": {
+    "add": "Agregar tipo",
+    "edit": "Editar",
+    "delete": "Eliminar",
+    "enable": "Activar",
+    "disable": "Desactivar",
+    "empty": "No hay tipos personalizados.",
+    "namePrompt": "Nombre de la categoria",
+    "riskPrompt": "Nivel de riesgo",
+    "filenamePrompt": "Regex nombre de archivo (opcional)",
+    "fieldPrompt": "Regex nombre de campo (opcional)",
+    "valuePrompt": "Regex valor (opcional)",
+    "deleteConfirm": "Eliminar el tipo {{name}}?",
+    "metaRisk": "Riesgo",
+    "metaFilename": "Nombre archivo",
+    "metaField": "Nombre campo",
+    "metaValue": "Valor"
+  },
+  "types": {
+    "standardTab": "Estandar",
+    "customTab": "Personalizados",
+    "standardHelp": "Los tipos estandar son integrados y de solo lectura. Usa tipos personalizados para datos locales o de negocio.",
+    "desc": {
+      "email": "Direcciones de correo.",
+      "phone": "Numeros de telefono con validacion por idioma.",
+      "iban": "Numeros de cuenta IBAN.",
+      "credit_card": "Tarjetas de pago validadas con Luhn.",
+      "ip_address": "Direcciones IPv4 publicas en contexto relevante.",
+      "address": "Direcciones detectadas en campos de direccion.",
+      "postal_code": "Codigos postales en campos dedicados.",
+      "date_of_birth": "Fechas relacionadas con nacimiento.",
+      "cookie": "Identificadores de cookie o sesion.",
+      "user_id": "Identificadores de usuario o dispositivo.",
+      "loyalty_id": "Identificadores de fidelidad.",
+      "digital_account": "Identificadores de cuenta digital.",
+      "rcu_id": "Identificadores RCU.",
+      "secret": "Secretos tecnicos (API key, token, contrasena).",
+      "weak_archive_encryption": "Archivos ZIP con cifrado debil ZipCrypto.",
+      "file_name_signal": "Palabras sensibles detectadas en el nombre del archivo."
+    }
+  },
+  "about": {
+    "description": "Esta aplicacion local vigila carpetas seleccionadas, detecta datos personales y secretos tecnicos, y propone acciones seguras de conservacion o eliminacion.",
+    "authorLabel": "Autor:",
+    "author": "badreddine",
+    "legalText": "Licencia AGPL-3.0-only. El analisis es local. Los valores revelados no se guardan. Esta herramienta ayuda a detectar y no reemplaza una auditoria formal de cumplimiento."
+  },
+  "alerts": {
+    "title": "Alertas",
+    "empty": "Aun no hay alertas. Descarga un archivo en tu carpeta Descargas para probar.",
+    "ignored": "Ignorado",
+    "deleted": "Eliminado",
+    "risk": "Riesgo",
+    "age": "Edad"
+  },
+  "filters": {
+    "all": "Todos",
+    "selectedCount": "{{count}} seleccionados",
+    "risk": "Riesgo",
+    "type": "Tipo",
+    "sort": "Orden",
+    "showIgnored": "Mostrar ignorados",
+    "sortRiskDesc": "Riesgo: alto a bajo",
+    "sortRiskAsc": "Riesgo: bajo a alto",
+    "sortRecent": "Mas recientes",
+    "sortType": "Tipo (A-Z)"
+  },
+  "report": {
+    "title": "Informe",
+    "select": "Selecciona una alerta para ver los detalles.",
+    "loadError": "No se puede mostrar el informe: {{error}}",
+    "revealUnavailable": "No hay datos personales en claro disponibles para este archivo.",
+    "fileName": "Nombre del archivo",
+    "path": "Ruta",
+    "size": "Tamano",
+    "modified": "Modificado",
+    "reasons": "Por que se marco",
+    "findings": "Datos personales detectados",
+    "suggestion": "Sugerencia",
+    "weakEncryption": "Cifrado de archivo debil",
+    "weakEncryptionDesc": "Este ZIP usa el cifrado heredado ZipCrypto (debil)."
+  },
+  "actions": {
+    "scan": "Escanear",
+    "scanRunning": "Escaneo en curso",
+    "scanProgress": "Escaneando {{processed}} / {{total}} archivos",
+    "stopScanConfirm": "Hay un escaneo en curso. Deseas detenerlo ahora?",
+    "scanRunningChoices": "Hay un escaneo en curso. Puedes detenerlo o limpiar alertas.",
+    "stopScan": "Detener escaneo",
+    "cleanAlerts": "Limpiar alertas",
+    "openFolder": "Abrir carpeta",
+    "delete": "Mover a la papelera",
+    "ignore": "Ignorar",
+    "unignore": "Dejar de ignorar",
+    "reveal": "Mostrar todos los datos personales",
+    "hide": "Ocultar datos personales",
+    "revealOne": "Mostrar valor",
+    "markMine": "Es mio",
+    "unmarkMine": "No es mio"
+  },
+  "confirmations": {
+    "title": "Confirmar accion",
+    "revealTitle": "Mostrar valores sensibles",
+    "revealBody": "Esto mostrara datos personales en pantalla. No se guardan, pero pueden ser vistos por otras personas.",
+    "deleteTitle": "Eliminar archivo",
+    "deleteBody": "Mover este archivo a la papelera?"
+  },
+  "risk": {
+    "low": "Bajo",
+    "medium": "Medio",
+    "high": "Alto",
+    "critical": "Critico"
+  },
+  "pii": {
+    "email": "Correo",
+    "phone": "Telefono",
+    "iban": "IBAN",
+    "creditCard": "Tarjeta",
+    "frenchNir": "NIR frances",
+    "ipAddress": "Direccion IP",
+    "address": "Direccion",
+    "postalCode": "Codigo postal",
+    "dateOfBirth": "Fecha de nacimiento",
+    "cookie": "Cookie / sesion",
+    "userId": "ID de usuario",
+    "loyaltyId": "Cuenta de fidelidad",
+    "digitalAccount": "Cuenta digital",
+    "rcuId": "ID RCU",
+    "secret": "Secreto (API key / token / contrasena)",
+    "fileNameSignal": "Senal del nombre",
+    "weakArchiveEncryption": "Cifrado ZIP debil"
+  },
+  "threshold": {
+    "24h": "24 horas",
+    "7j": "7 dias",
+    "30j": "30 dias"
+  },
+  "notifications": {
+    "newAlertTitle": "Datos personales detectados",
+    "newAlertBody": "Riesgo: {{risk}}. {{types}}",
+    "reminderTitle": "Archivo conservado ({{threshold}})",
+    "reminderBody": "Riesgo: {{risk}}. Considera eliminarlo: {{path}}",
+    "weakZipTitle": "Cifrado ZIP debil",
+    "weakZipBody": "Este ZIP usa ZipCrypto (debil). Considera eliminarlo o volver a cifrarlo con AES."
+  },
+  "reason": {
+    "categoryCount": "{{category}}: {{count}} ocurrencia(s)",
+    "customCategoryCount": "Tipo personalizado {{category}} ({{risk}}): {{count}} ocurrencia(s)",
+    "filenameKeyword": "Palabra clave en el nombre: {{keyword}}",
+    "filenameSignal": "Senal del nombre del archivo (+{{bonus}})",
+    "weakZipEncryption": "ZIP cifrado usa ZipCrypto debil",
+    "hashLike": "{{category}} parece un hash (menor riesgo)",
+    "fileTooLarge": "Archivo demasiado grande para analizar ({{bytes}} bytes)",
+    "notAFile": "La ruta no es un archivo"
+  },
+  "entities": {
+    "title": "Tipos de entidades",
+    "pureTitle": "Entidades PII (100% confirmadas)",
+    "contextualTitle": "Entidades contextuales (Puntuacion)",
+    "enabled": "Activado",
+    "disabled": "Desactivado",
+    "configure": "Configurar",
+    "positiveIndicators": "Indicadores positivos",
+    "negativeIndicators": "Indicadores negativos",
+    "threshold": "Umbral de confianza",
+    "localeBadge": "Activado por region",
+    "types": {
+      "email": "Correo",
+      "phone": "Telefono",
+      "iban": "IBAN",
+      "credit_card": "Tarjeta de credito",
+      "ip_address": "Direccion IP",
+      "mac_address": "Direccion MAC",
+      "bitcoin": "Bitcoin",
+      "ethereum": "Ethereum",
+      "us_ssn": "Seguridad Social US",
+      "us_passport": "Pasaporte US",
+      "uk_nhs": "Numero NHS UK",
+      "fr_nir": "NIR Frances",
+      "es_dni": "DNI Espanol",
+      "de_tax_id": "Numero fiscal Aleman",
+      "person": "Nombre de persona",
+      "organization": "Organizacion",
+      "location": "Ubicacion"
+    },
+    "descriptions": {
+      "email": "Direcciones de correo con formato valido",
+      "phone": "Numeros de telefono en formato internacional",
+      "iban": "Numeros de cuenta bancaria internacional",
+      "credit_card": "Tarjetas de pago validadas con Luhn",
+      "ip_address": "Direcciones IP publicas",
+      "mac_address": "Direcciones MAC",
+      "bitcoin": "Direcciones Bitcoin",
+      "ethereum": "Direcciones Ethereum",
+      "person": "Nombres de personas con analisis contextual",
+      "organization": "Nombres de empresas y organizaciones",
+      "location": "Ubicaciones geograficas"
+    }
+  },
+  "debug": {
+    "title": "Modo Debug",
+    "confidence": "Confianza",
+    "context": "Contexto",
+    "decision": "Decision",
+    "positiveMatch": "Coincidencia positiva",
+    "negativeMatch": "Coincidencia negativa",
+    "shown": "Mostrado",
+    "filtered": "Filtrado"
+  }
+}

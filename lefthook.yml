@@ -1,0 +1,17 @@
+pre-commit:
+  commands:
+    fmt_check:
+      run: bun run fmt:check
+    typecheck:
+      run: bun run typecheck
+    i18n_check:
+      run: bun run i18n:check
+    rust_fmt:
+      run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+    rust_clippy:
+      run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+
+pre-push:
+  commands:
+    full_check:
+      run: bun run check

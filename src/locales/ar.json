@@ -1,0 +1,245 @@
+{
+  "app": {
+    "name": "كاشف البيانات الشخصية",
+    "tagline": "يرصد البيانات الشخصية في التنزيلات وينبهك ويساعدك على التنظيف"
+  },
+  "common": {
+    "refresh": "تحديث",
+    "close": "اغلاق",
+    "cancel": "الغاء",
+    "confirm": "تاكيد"
+  },
+  "language": {
+    "label": "اللغة",
+    "en": "الانجليزية",
+    "fr": "الفرنسية",
+    "ar": "العربية",
+    "es": "الاسبانية",
+    "de": "الالمانية"
+  },
+  "settings": {
+    "watching": "المجلدات المراقبة",
+    "watchingUnavailable": "تعذر تحميل المجلدات المراقبة",
+    "addFolder": "اضافة مجلد",
+    "editFolder": "تعديل هذا المجلد",
+    "removeFolder": "ازالة هذا المجلد",
+    "addPrompt": "مسار المجلد المراد مراقبته",
+    "editPrompt": "مسار المجلد الجديد"
+  },
+  "menu": {
+    "title": "القائمة",
+    "about": "حول",
+    "legal": "الشروط القانونية",
+    "customTypes": "انواع مخصصة",
+    "types": "الانواع"
+  },
+  "custom": {
+    "add": "اضافة نوع",
+    "edit": "تعديل",
+    "delete": "حذف",
+    "enable": "تفعيل",
+    "disable": "تعطيل",
+    "empty": "لا توجد انواع مخصصة.",
+    "namePrompt": "اسم الفئة",
+    "riskPrompt": "مستوى الخطورة",
+    "filenamePrompt": "Regex لاسم الملف (اختياري)",
+    "fieldPrompt": "Regex لاسم الحقل (اختياري)",
+    "valuePrompt": "Regex للقيمة (اختياري)",
+    "deleteConfirm": "حذف النوع {{name}}؟",
+    "metaRisk": "الخطورة",
+    "metaFilename": "اسم الملف",
+    "metaField": "اسم الحقل",
+    "metaValue": "القيمة"
+  },
+  "types": {
+    "standardTab": "قياسية",
+    "customTab": "مخصصة",
+    "standardHelp": "الانواع القياسية مدمجة وللقراءة فقط. استخدم الانواع المخصصة لبياناتك المحلية او الخاصة بالنشاط.",
+    "desc": {
+      "email": "عناوين البريد الالكتروني.",
+      "phone": "ارقام الهاتف مع تحقق حسب اللغة.",
+      "iban": "ارقام حساب IBAN.",
+      "credit_card": "ارقام بطاقات الدفع مع تحقق Luhn.",
+      "ip_address": "عناوين IPv4 العامة في سياق مناسب.",
+      "address": "عناوين مكتشفة من حقول العنوان.",
+      "postal_code": "رموز بريدية من حقول مخصصة.",
+      "date_of_birth": "تواريخ مرتبطة بتاريخ الميلاد.",
+      "cookie": "معرفات Cookie او الجلسة.",
+      "user_id": "معرفات المستخدم او الجهاز.",
+      "loyalty_id": "معرفات الولاء.",
+      "digital_account": "معرفات الحساب الرقمي.",
+      "rcu_id": "معرفات RCU.",
+      "secret": "اسرار تقنية مثل API key او token او كلمة المرور.",
+      "weak_archive_encryption": "ملفات ZIP تستخدم تشفير ZipCrypto الضعيف.",
+      "file_name_signal": "كلمات حساسة في اسم الملف."
+    }
+  },
+  "about": {
+    "description": "هذا التطبيق المحلي يراقب المجلدات المحددة ويكتشف البيانات الشخصية والاسرار التقنية ثم يقترح اجراءات امنة للحفظ او الحذف.",
+    "authorLabel": "المؤلف:",
+    "author": "badreddine",
+    "legalText": "مرخص تحت AGPL-3.0-only. يتم الفحص محليا. القيم المكشوفة لا يتم حفظها. هذه الاداة تساعد على الاكتشاف ولا تغني عن تدقيق امتثال رسمي."
+  },
+  "alerts": {
+    "title": "تنبيهات",
+    "empty": "لا توجد تنبيهات بعد. قم بتنزيل ملف في مجلد التنزيلات للاختبار.",
+    "ignored": "تم التجاهل",
+    "deleted": "تم الحذف",
+    "risk": "الخطورة",
+    "age": "العمر"
+  },
+  "filters": {
+    "all": "الكل",
+    "selectedCount": "{{count}} محدد",
+    "risk": "الخطورة",
+    "type": "النوع",
+    "sort": "الفرز",
+    "showIgnored": "اظهار المتجاهلة",
+    "sortRiskDesc": "الخطورة: من اعلى الى اقل",
+    "sortRiskAsc": "الخطورة: من اقل الى اعلى",
+    "sortRecent": "الاحدث",
+    "sortType": "النوع (A-Z)"
+  },
+  "report": {
+    "title": "تقرير",
+    "select": "اختر تنبيها لعرض التفاصيل.",
+    "loadError": "تعذر عرض التقرير: {{error}}",
+    "revealUnavailable": "لا تتوفر بيانات شخصية مكشوفة لهذا الملف.",
+    "fileName": "اسم الملف",
+    "path": "المسار",
+    "size": "الحجم",
+    "modified": "اخر تعديل",
+    "reasons": "سبب التحذير",
+    "findings": "بيانات شخصية تم رصدها",
+    "suggestion": "اقتراح",
+    "weakEncryption": "تشفير ضعيف للارشيف",
+    "weakEncryptionDesc": "هذا الملف ZIP يستخدم ZipCrypto القديم (ضعيف)."
+  },
+  "actions": {
+    "scan": "فحص",
+    "scanRunning": "الفحص جار",
+    "scanProgress": "يتم فحص {{processed}} / {{total}} ملفات",
+    "stopScanConfirm": "يوجد فحص جار. هل تريد ايقافه الان؟",
+    "scanRunningChoices": "يوجد فحص جار. يمكنك ايقاف الفحص او تنظيف التنبيهات.",
+    "stopScan": "ايقاف الفحص",
+    "cleanAlerts": "تنظيف التنبيهات",
+    "openFolder": "فتح المجلد",
+    "delete": "نقل الى سلة المحذوفات",
+    "ignore": "تجاهل",
+    "unignore": "ايقاف التجاهل",
+    "reveal": "اظهار جميع البيانات الشخصية",
+    "hide": "اخفاء البيانات الشخصية",
+    "revealOne": "اظهار القيمة",
+    "markMine": "هذا يعود لي",
+    "unmarkMine": "ليس لي"
+  },
+  "confirmations": {
+    "title": "تأكيد العملية",
+    "revealTitle": "اظهار قيم حساسة",
+    "revealBody": "سيتم عرض بيانات شخصية على الشاشة. لا يتم حفظ القيم ولكن قد يراها من حولك.",
+    "deleteTitle": "حذف الملف",
+    "deleteBody": "هل تريد نقل هذا الملف الى سلة المحذوفات؟"
+  },
+  "risk": {
+    "low": "منخفضة",
+    "medium": "متوسطة",
+    "high": "عالية",
+    "critical": "حرجة"
+  },
+  "pii": {
+    "email": "بريد الكتروني",
+    "phone": "هاتف",
+    "iban": "IBAN",
+    "creditCard": "بطاقة دفع",
+    "frenchNir": "رقم NIR فرنسي",
+    "ipAddress": "عنوان IP",
+    "address": "عنوان",
+    "postalCode": "رمز بريدي",
+    "dateOfBirth": "تاريخ الميلاد",
+    "cookie": "Cookie / جلسة",
+    "userId": "معرف المستخدم",
+    "loyaltyId": "حساب الولاء",
+    "digitalAccount": "حساب رقمي",
+    "rcuId": "معرف RCU",
+    "secret": "سر (API key / token / كلمة مرور)",
+    "fileNameSignal": "اشارة اسم الملف",
+    "weakArchiveEncryption": "تشفير ZIP ضعيف"
+  },
+  "threshold": {
+    "24h": "24 ساعة",
+    "7j": "7 ايام",
+    "30j": "30 يوما"
+  },
+  "notifications": {
+    "newAlertTitle": "تم رصد بيانات شخصية",
+    "newAlertBody": "الخطورة: {{risk}}. {{types}}",
+    "reminderTitle": "الملف ما زال محفوظا ({{threshold}})",
+    "reminderBody": "الخطورة: {{risk}}. فكر في حذفه: {{path}}",
+    "weakZipTitle": "تشفير ZIP ضعيف",
+    "weakZipBody": "هذا الملف ZIP يستخدم ZipCrypto (ضعيف). فكر في الحذف او اعادة التشفير باستخدام AES."
+  },
+  "reason": {
+    "categoryCount": "{{category}}: عدد {{count}}",
+    "customCategoryCount": "نوع مخصص {{category}} ({{risk}}): عدد {{count}}",
+    "filenameKeyword": "كلمة مفتاحية في اسم الملف: {{keyword}}",
+    "filenameSignal": "اشارة اسم الملف (+{{bonus}})",
+    "weakZipEncryption": "ZIP مشفر يستخدم ZipCrypto الضعيف",
+    "hashLike": "{{category}} تبدو كهاش (خطورة اقل)",
+    "fileTooLarge": "الملف كبير جدا للفحص ({{bytes}} بايت)",
+    "notAFile": "المسار ليس ملفا"
+  },
+  "entities": {
+    "title": "انواع الكيانات",
+    "pureTitle": "كيانات PII (مؤكدة 100%)",
+    "contextualTitle": "كيانات سياقية (تقييم)",
+    "enabled": "مفعل",
+    "disabled": "معطل",
+    "configure": "اعداد",
+    "positiveIndicators": "مؤشرات ايجابية",
+    "negativeIndicators": "مؤشرات سلبية",
+    "threshold": "عتبة الثقة",
+    "localeBadge": "مفعل حسب المنطقة",
+    "types": {
+      "email": "بريد الكتروني",
+      "phone": "هاتف",
+      "iban": "IBAN",
+      "credit_card": "بطاقة دفع",
+      "ip_address": "عنوان IP",
+      "mac_address": "عنوان MAC",
+      "bitcoin": "بيتكوين",
+      "ethereum": "ايثيريوم",
+      "us_ssn": "الضمان الاجتماعي US",
+      "us_passport": "جواز سفر US",
+      "uk_nhs": "رقم NHS UK",
+      "fr_nir": "NIR فرنسي",
+      "es_dni": "DNI اسباني",
+      "de_tax_id": "رقم ضريبي الماني",
+      "person": "اسم شخص",
+      "organization": "منظمة",
+      "location": "موقع"
+    },
+    "descriptions": {
+      "email": "عناوين بريد الكتروني بتنسيق صحيح",
+      "phone": "ارقام هاتف بالتنسيق الدولي",
+      "iban": "ارقام حسابات بنكية دولية",
+      "credit_card": "بطاقات دفع مُتحقق منها Luhn",
+      "ip_address": "عناوين IP عامة",
+      "mac_address": "عناوين MAC",
+      "bitcoin": "عناوين Bitcoin",
+      "ethereum": "عناوين Ethereum",
+      "person": "اسماء اشخاص مع تحليل سياقي",
+      "organization": "اسماء شركات ومنظمات",
+      "location": "مواقع جغرافية"
+    }
+  },
+  "debug": {
+    "title": "وضع التصحيح",
+    "confidence": "الثقة",
+    "context": "السياق",
+    "decision": "القرار",
+    "positiveMatch": "تطابق ايجابي",
+    "negativeMatch": "تطابق سلبي",
+    "shown": "معروض",
+    "filtered": "مفلتر"
+  }
+}
