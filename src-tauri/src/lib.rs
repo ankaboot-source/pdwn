@@ -9,6 +9,7 @@ mod secrets;
 mod settings;
 mod tray;
 mod types;
+mod user_values;
 mod watcher;
 mod zip_inspect;
 

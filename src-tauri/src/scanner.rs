@@ -26,15 +26,38 @@ pub async fn scan_path_with_settings(
     entity_settings: &[EntitySetting],
     mode: ScanMode,
 ) -> Result<ScanSummary> {
+    scan_path_with_ignore_snapshot(path, settings, custom_detectors, entity_settings, mode, None).await
+}
+
+pub async fn scan_path_with_ignore_snapshot(
+    path: &str,
+    settings: &Settings,
+    custom_detectors: &[crate::types::CustomDetector],
+    entity_settings: &[EntitySetting],
+    mode: ScanMode,
+    ignored: Option<&crate::types::IgnoredValuesSnapshot>,
+) -> Result<ScanSummary> {
     // Run scan in blocking thread; parsers are synchronous.
     let path = path.to_string();
     let settings = settings.clone();
     let custom_detectors = custom_detectors.to_vec();
     let entity_settings = entity_settings.to_vec();
+    let ignored_snapshot = ignored.cloned();
     tokio::task::spawn_blocking(move || {
-        scan_path_blocking(&path, &settings, &custom_detectors, &entity_settings, mode)
+        scan_path_blocking_with_ignore(&path, &settings, &custom_detectors, &entity_settings, mode, ignored_snapshot)
     })
     .await?
+}
+
+fn scan_path_blocking_with_ignore(
+    path: &str,
+    settings: &Settings,
+    custom_detectors: &[crate::types::CustomDetector],
+    entity_settings: &[EntitySetting],
+    mode: ScanMode,
+    ignored: Option<crate::types::IgnoredValuesSnapshot>,
+) -> Result<ScanSummary> {
+    scan_path_blocking(path, settings, custom_detectors, entity_settings, mode, ignored)
 }
 
 fn scan_path_blocking(
@@ -43,6 +66,17 @@ fn scan_path_blocking(
     custom_detectors: &[crate::types::CustomDetector],
     entity_settings: &[EntitySetting],
     mode: ScanMode,
+) -> Result<ScanSummary> {
+    scan_path_blocking_with_ignore(path, settings, custom_detectors, entity_settings, mode, None)
+}
+
+fn scan_path_blocking_with_ignore(
+    path: &str,
+    settings: &Settings,
+    custom_detectors: &[crate::types::CustomDetector],
+    entity_settings: &[EntitySetting],
+    mode: ScanMode,
+    ignored: Option<crate::types::IgnoredValuesSnapshot>,
 ) -> Result<ScanSummary> {
     // Build contextual analyzers from enabled entity settings
     let contextual_analyzers: Vec<ContextualAnalyzer> = entity_settings
@@ -61,8 +95,19 @@ fn scan_path_blocking(
     let mut reasons: Vec<Reason> = Vec::new();
     let mut weak_zip_encryption = false;
 
-    for (cat, values) in file_name_matches.by_category {
-        matches.entry(cat).or_default().extend(values);
+    for (cat, values) in &file_name_matches.by_category {
+        if let Some(snapshot) = &ignored {
+            let filtered_values: Vec<String> = values
+                .iter()
+                .filter(|v| !is_value_ignored(snapshot, cat, v))
+                .cloned()
+                .collect();
+            if !filtered_values.is_empty() {
+                matches.entry(*cat).or_default().extend(filtered_values);
+            }
+        } else {
+            matches.entry(*cat).or_default().extend(values.clone());
+        }
     }
     reasons.extend(file_name_matches.filename_reasons);
     merge_custom_matches(
@@ -134,7 +179,8 @@ fn scan_path_blocking(
     match ext.as_str() {
         "pdf" => {
             if let Ok(text) = scan_pdf_text(p, settings.max_text_bytes) {
-                merge_matches(&mut matches, &pii::detect_in_text(&text));
+                let text_matches = pii::detect_in_text(&text);
+                merge_matches(&mut matches, &text_matches, &ignored);
                 merge_custom_matches(
                     &mut custom_matches,
                     &pii::detect_custom(&text, file_name, &compiled_custom),
@@ -154,7 +200,8 @@ fn scan_path_blocking(
         }
         "docx" => {
             if let Ok(text) = scan_docx_text(p, settings.max_text_bytes) {
-                merge_matches(&mut matches, &pii::detect_in_text(&text));
+                let text_matches = pii::detect_in_text(&text);
+                merge_matches(&mut matches, &text_matches, &ignored);
                 merge_custom_matches(
                     &mut custom_matches,
                     &pii::detect_custom(&text, file_name, &compiled_custom),
@@ -184,7 +231,8 @@ fn scan_path_blocking(
         _ => {
             if is_image_ext(&ext) {
                 if let Ok(text) = scan_image_with_optional_ocr(p, settings.max_text_bytes) {
-                    merge_matches(&mut matches, &pii::detect_in_text(&text));
+                    let text_matches = pii::detect_in_text(&text);
+                    merge_matches(&mut matches, &text_matches, &ignored);
                     merge_custom_matches(
                         &mut custom_matches,
                         &pii::detect_custom(&text, file_name, &compiled_custom),
@@ -195,7 +243,8 @@ fn scan_path_blocking(
             // Treat as text-like when extension matches common formats.
             else if is_text_like_ext(&ext) {
                 if let Ok(text) = read_text_prefix(p, settings.max_text_bytes) {
-                    merge_matches(&mut matches, &pii::detect_in_text(&text));
+                    let text_matches = pii::detect_in_text(&text);
+                    merge_matches(&mut matches, &text_matches, &ignored);
                     merge_custom_matches(
                         &mut custom_matches,
                         &pii::detect_custom(&text, file_name, &compiled_custom),
@@ -205,7 +254,8 @@ fn scan_path_blocking(
             } else {
                 // Best-effort: read small chunk and detect if it is text.
                 if let Ok(text) = read_text_prefix_if_probably_text(p, settings.max_text_bytes) {
-                    merge_matches(&mut matches, &pii::detect_in_text(&text));
+                    let text_matches = pii::detect_in_text(&text);
+                    merge_matches(&mut matches, &text_matches, &ignored);
                     merge_custom_matches(
                         &mut custom_matches,
                         &pii::detect_custom(&text, file_name, &compiled_custom),
@@ -247,10 +297,35 @@ fn scan_path_blocking(
 fn merge_matches(
     dst: &mut BTreeMap<PiiCategory, Vec<String>>,
     src: &BTreeMap<PiiCategory, Vec<String>>,
+    ignored: &Option<crate::types::IgnoredValuesSnapshot>,
 ) {
     for (cat, values) in src {
-        dst.entry(cat.clone()).or_default().extend(values.clone());
+        let filtered_values: Vec<String> = if let Some(snapshot) = ignored {
+            values
+                .iter()
+                .filter(|v| !is_value_ignored(snapshot, cat, v))
+                .cloned()
+                .collect()
+        } else {
+            values.clone()
+        };
+        if !filtered_values.is_empty() {
+            dst.entry(cat.clone()).or_default().extend(filtered_values);
+        }
     }
+}
+
+fn merge_matches_no_ignore(
+    dst: &mut BTreeMap<PiiCategory, Vec<String>>,
+    src: &BTreeMap<PiiCategory, Vec<String>>,
+) {
+    merge_matches(dst, src, &None);
+}
+
+fn is_value_ignored(snapshot: &crate::types::IgnoredValuesSnapshot, cat: &PiiCategory, value: &str) -> bool {
+    let cat_str = serde_json::to_string(cat).unwrap().trim_matches('"').to_string();
+    let hash = crate::user_values::UserHash::hash_value(&snapshot.salt, cat.clone(), value);
+    snapshot.set.contains(&(cat_str, hash))
 }
 
 fn merge_custom_matches(

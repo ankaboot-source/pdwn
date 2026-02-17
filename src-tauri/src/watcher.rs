@@ -137,6 +137,9 @@ pub async fn start_watchers(app: &tauri::AppHandle, state: AppState) -> Result<(
             ticker.tick().await;
 
             {
+                // Fetch ignored values snapshot for filtering
+                let ignored_snapshot = worker_state.db.get_ignored_values_snapshot().await.unwrap_or_default();
+
                 let mut ready = Vec::new();
                 {
                     let mut guard = worker_pending.lock().await;
@@ -154,7 +157,7 @@ pub async fn start_watchers(app: &tauri::AppHandle, state: AppState) -> Result<(
                     });
                 }
                 for path in ready {
-                    let _ = process_file(&worker_app, &worker_state, &path).await;
+                    let _ = process_file(&worker_app, &worker_state, &path, Some(&ignored_snapshot)).await;
                 }
             }
         }
@@ -172,7 +175,7 @@ pub async fn restart_watchers(app: &tauri::AppHandle, state: AppState) -> Result
 
 type ArcPending = std::sync::Arc<Mutex<HashMap<PathBuf, PendingFile>>>;
 
-async fn process_file(app: &tauri::AppHandle, state: &AppState, path: &Path) -> Result<()> {
+async fn process_file(app: &tauri::AppHandle, state: &AppState, path: &Path, ignored: Option<&crate::types::IgnoredValuesSnapshot>) -> Result<()> {
     tracing::debug!(path = %path.display(), "watcher:process_file:start");
     if is_hidden_path(path) {
         return Ok(());
@@ -217,12 +220,13 @@ async fn process_file(app: &tauri::AppHandle, state: &AppState, path: &Path) -> 
         .unwrap_or_default();
     let entity_settings = state.db.get_entity_settings().await.unwrap_or_default();
 
-    let scan = match scanner::scan_path_with_settings(
+    let scan = match scanner::scan_path_with_ignore_snapshot(
         &path.to_string_lossy(),
         &settings,
         &custom_detectors,
         &entity_settings,
         scanner::ScanMode::Redacted,
+        ignored,
     )
     .await
     {

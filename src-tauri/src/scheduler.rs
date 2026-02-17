@@ -70,6 +70,7 @@ pub async fn run_initial_scan(
     state: AppState,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
+    let ignored_snapshot = state.db.get_ignored_values_snapshot().await.unwrap_or_default();
     let settings = state.settings.lock().await.clone();
     let mut candidates = Vec::new();
     for dir in settings.watched_dirs() {
@@ -185,12 +186,13 @@ async fn initial_process_file(
         return Ok(());
     }
 
-    let scan = match scanner::scan_path_with_settings(
+    let scan = match scanner::scan_path_with_ignore_snapshot(
         &path.to_string_lossy(),
-        settings,
-        custom_detectors,
-        entity_settings,
+        &settings,
+        &custom_detectors,
+        &entity_settings,
         scanner::ScanMode::Redacted,
+        Some(&ignored_snapshot),
     )
     .await
     {

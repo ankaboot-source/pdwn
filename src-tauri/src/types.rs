@@ -149,6 +149,12 @@ pub struct Report {
     pub revealed: Option<RevealedFindings>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct IgnoredValuesSnapshot {
+    pub salt: String,
+    pub set: std::collections::HashSet<(String, String)>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AppEvent {

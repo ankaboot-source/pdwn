@@ -131,9 +131,9 @@ static SECRET_PATTERNS: Lazy<Vec<SecretPattern>> = Lazy::new(|| {
         ),
         // Generic secret with high entropy context
         SecretPattern::new(
-            r"(?i)(secret|secret_key|encryption_key|private_key)[\s]*[=:][\s]*[A-Za-z0-9/+=]{20,}",
+            r"(?i)(secret|secret_key|encryption_key|private_key|api_key|token)[\s]*[=:][\s]*[A-Za-z0-9/+=]{20,}",
             20,
-            None,
+            Some(|s: &str| has_api_context(s)),
         ),
     ]
 });
@@ -387,6 +387,18 @@ fn looks_like_secret_value(value: &str) -> bool {
     }
 
     true
+}
+
+fn has_api_context(s: &str) -> bool {
+    let lower = s.to_lowercase();
+    // Check for common API-related keywords indicating real API keys
+    lower.contains("api") || lower.contains("key") || lower.contains("token") ||
+    lower.contains("auth") || lower.contains("secret") ||
+    lower.contains("bearer") || lower.contains("authorization") ||
+    // Check for file extensions that commonly contain real API keys
+    !lower.contains(".ics") && !lower.contains(".ical") &&
+    !lower.contains(".excalidraw") && !lower.contains(".txt") &&
+    !lower.contains(".calendar")
 }
 
 fn is_likely_plain_base64(s: &str) -> bool {

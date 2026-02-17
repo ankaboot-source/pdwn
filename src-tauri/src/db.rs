@@ -885,7 +885,7 @@ pub async fn seed_default_entity_settings(&self) -> Result<()> {
         now: i64,
     ) -> Result<()> {
         let salt = self.get_or_create_user_salt().await?;
-        let hash = hash_user_value(&salt, category.clone(), raw_value);
+        let hash = crate::user_values::UserHash::hash_value(&salt, category.clone(), raw_value);
         let cat = serde_json::to_string(&category)?
             .trim_matches('"')
             .to_string();
@@ -900,7 +900,7 @@ pub async fn seed_default_entity_settings(&self) -> Result<()> {
 
     pub async fn unmark_user_value(&self, category: PiiCategory, raw_value: &str) -> Result<()> {
         let salt = self.get_or_create_user_salt().await?;
-        let hash = hash_user_value(&salt, category.clone(), raw_value);
+        let hash = crate::user_values::UserHash::hash_value(&salt, category.clone(), raw_value);
         let cat = serde_json::to_string(&category)?
             .trim_matches('"')
             .to_string();
@@ -915,7 +915,7 @@ pub async fn seed_default_entity_settings(&self) -> Result<()> {
 
     pub async fn is_user_value(&self, category: PiiCategory, raw_value: &str) -> Result<bool> {
         let salt = self.get_or_create_user_salt().await?;
-        let hash = hash_user_value(&salt, category.clone(), raw_value);
+        let hash = crate::user_values::UserHash::hash_value(&salt, category.clone(), raw_value);
         let cat = serde_json::to_string(&category)?
             .trim_matches('"')
             .to_string();
@@ -940,6 +940,23 @@ pub async fn seed_default_entity_settings(&self) -> Result<()> {
         )
         .await?;
         Ok(())
+    }
+
+    pub async fn get_ignored_values_snapshot(&self) -> Result<IgnoredValuesSnapshot> {
+        let salt = self.get_or_create_user_salt().await?;
+        let conn = self.conn.lock().await;
+        let mut rows = conn
+            .query("SELECT category, value_hash FROM user_values", params![])
+            .await?;
+
+        let mut set = std::collections::HashSet::new();
+        while let Some(row) = rows.next().await? {
+            let category: String = row.get(0)?;
+            let hash: String = row.get(1)?;
+            set.insert((category, hash));
+        }
+
+        Ok(IgnoredValuesSnapshot { salt, set })
     }
 
     pub async fn get_entity_settings(&self) -> Result<Vec<EntitySetting>> {
@@ -1003,29 +1020,6 @@ fn random_hex(len_bytes: usize) -> String {
     let mut bytes = vec![0u8; len_bytes];
     let _ = getrandom::fill(&mut bytes);
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
-}
-
-fn normalize_value(category: PiiCategory, raw: &str) -> String {
-    let v = raw.trim();
-    match category {
-        PiiCategory::Email => v.to_lowercase(),
-        PiiCategory::Iban => v
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric())
-            .collect::<String>()
-            .to_uppercase(),
-        PiiCategory::Phone => v.chars().filter(|c| c.is_ascii_digit()).collect(),
-        _ => v.to_string(),
-    }
-}
-
-fn hash_user_value(salt_hex: &str, category: PiiCategory, raw_value: &str) -> String {
-    let normalized = normalize_value(category, raw_value);
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(salt_hex.as_bytes());
-    hasher.update(b"\n");
-    hasher.update(normalized.as_bytes());
-    hasher.finalize().to_hex().to_string()
 }
 
 fn parse_risk_level(value: &str) -> RiskLevel {
