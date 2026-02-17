@@ -120,6 +120,37 @@ async fn unmark_value_as_mine(
         .map_err(|e| e.to_string())
 }
 
+// Additional ignore commands for clarity (aliasing the same functions)
+#[tauri::command]
+async fn ignore_value(
+    state: tauri::State<'_, AppState>,
+    category: crate::types::PiiCategory,
+    value: String,
+) -> Result<(), String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    state
+        .db
+        .mark_user_value(category, &value, now)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn unignore_value(
+    state: tauri::State<'_, AppState>,
+    category: crate::types::PiiCategory,
+    value: String,
+) -> Result<(), String> {
+    state
+        .db
+        .unmark_user_value(category, &value)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn ignore_file(state: tauri::State<'_, AppState>, file_id: FileId) -> Result<(), String> {
     tracing::debug!(file_id, "command:ignore_file");
@@ -446,6 +477,8 @@ pub fn run() {
             get_report,
             mark_value_as_mine,
             unmark_value_as_mine,
+            ignore_value,
+            unignore_value,
             ignore_file,
             unignore_file,
             delete_file_to_trash,

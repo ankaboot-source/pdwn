@@ -131,7 +131,9 @@
     "hide": "Masquer les données personnelles",
     "revealOne": "Afficher la valeur",
     "markMine": "C'est à moi",
-    "unmarkMine": "Pas à moi"
+    "unmarkMine": "Pas à moi",
+    "ignoreValue": "Ne plus détecter",
+    "unignoreValue": "Détecter à nouveau"
   },
   "confirmations": {
     "title": "Confirmer l'action",
@@ -227,9 +229,15 @@
       "mac_address": "Adresses MAC",
       "bitcoin": "Adresses Bitcoin",
       "ethereum": "Adresses Ethereum",
-      "person": "Noms de personnes avec analyse contextuelle",
-      "organization": "Noms d'entreprises et organisations",
-      "location": "Lieux géographiques"
+    "person": "Noms de personnes avec analyse contextuelle",
+    "organization": "Noms d'entreprises et organisations",
+    "location": "Lieux géographiques",
+    "us_ssn": "Numéros de Sécurité Sociale américaine (9 chiffres, XXX-XX-XXXX)",
+    "us_passport": "Numéros de passeport américain",
+    "uk_nhs": "Numéros NHS britannique",
+    "fr_nir": "Numéros de Sécurité Sociale française (NIR)",
+    "es_dni": "Numéros d'identité espagnole (DNI)",
+    "de_tax_id": "Numéros fiscaux allemand"
     }
   },
   "debug": {

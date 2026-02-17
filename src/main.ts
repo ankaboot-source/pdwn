@@ -23,6 +23,7 @@ import {
   getReport,
   getSettings,
   ignoreFile,
+  ignoreValue,
   listAlerts,
   listCustomDetectors,
   markValueAsMine,
@@ -31,6 +32,7 @@ import {
   setSettings,
   stopScan,
   unignoreFile,
+  unignoreValue,
   unmarkValueAsMine,
   updateCustomDetector,
   updateEntityEnabled,
@@ -1552,7 +1554,7 @@ function renderFindings(r: Report): HTMLElement {
       for (const v of cat.values.slice(0, 50)) {
         const row = el("div", "reveal-row");
         row.append(el("code", "reveal", v.value));
-        const btn = el(
+        const markBtn = el(
           "button",
           `mini ${v.is_mine ? "ok" : ""}`,
           withIcon(
@@ -1560,7 +1562,7 @@ function renderFindings(r: Report): HTMLElement {
             t(v.is_mine ? "actions.unmarkMine" : "actions.markMine"),
           ),
         );
-        btn.addEventListener("click", async (e) => {
+        markBtn.addEventListener("click", async (e) => {
           e.preventDefault();
           e.stopPropagation();
           if (v.is_mine) {
@@ -1575,7 +1577,32 @@ function renderFindings(r: Report): HTMLElement {
             render();
           }
         });
-        row.append(btn);
+        row.append(markBtn);
+
+        const ignoreBtn = el(
+          "button",
+          `mini ${v.is_ignored ? "ok" : ""}`,
+          withIcon(
+            v.is_ignored ? "🚫" : "🙈",
+            t(v.is_ignored ? "actions.unignoreValue" : "actions.ignoreValue"),
+          ),
+        );
+        ignoreBtn.addEventListener("click", async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (v.is_ignored) {
+            await unignoreValue(cat.category, v.value);
+          } else {
+            await ignoreValue(cat.category, v.value);
+          }
+          // Refresh revealed report to update flags.
+          if (selectedFileId) {
+            selectedReport = await getReport(selectedFileId, true);
+            showRevealed = true;
+            render();
+          }
+        });
+        row.append(ignoreBtn);
         list.append(row);
       }
       revealed.append(list);

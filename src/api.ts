@@ -46,7 +46,7 @@ export type UiAlert = {
 
 export type RevealedCategory = {
   category: string;
-  values: { value: string; is_mine: boolean }[];
+  values: { value: string; is_mine: boolean; is_ignored: boolean }[];
 };
 
 export type Report = {
@@ -167,6 +167,14 @@ export async function markValueAsMine(category: string, value: string): Promise<
 
 export async function unmarkValueAsMine(category: string, value: string): Promise<void> {
   await invoke("unmark_value_as_mine", { category, value });
+}
+
+export async function ignoreValue(category: string, value: string): Promise<void> {
+  await invoke("ignore_value", { category, value });
+}
+
+export async function unignoreValue(category: string, value: string): Promise<void> {
+  await invoke("unignore_value", { category, value });
 }
 
 export type EntitySetting = {

@@ -131,7 +131,9 @@
     "hide": "Personenbezogene Daten ausblenden",
     "revealOne": "Wert anzeigen",
     "markMine": "Gehort mir",
-    "unmarkMine": "Gehort nicht mir"
+    "unmarkMine": "Gehort nicht mir",
+    "ignoreValue": "Nicht mehr erkennen",
+    "unignoreValue": "Erneut erkennen"
   },
   "confirmations": {
     "title": "Aktion bestatigen",
@@ -229,7 +231,13 @@
       "ethereum": "Ethereum-Adressen",
       "person": "Personennamen mit Kontextanalyse",
       "organization": "Unternehmens- und Organisationsnamen",
-      "location": "Geografische Orte"
+      "location": "Geografische Orte",
+      "us_ssn": "US Sozialversicherungsnummern (9 Ziffern, XXX-XX-XXXX)",
+      "us_passport": "US Passnummern",
+      "uk_nhs": "UK NHS Nummern",
+      "fr_nir": "Franzosische Sozialversicherungsnummern (NIR)",
+      "es_dni": "Spanische ID-Nummern (DNI)",
+      "de_tax_id": "Deutsche Steuernummern"
     }
   },
   "debug": {

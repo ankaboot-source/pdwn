@@ -131,7 +131,9 @@
     "hide": "Ocultar datos personales",
     "revealOne": "Mostrar valor",
     "markMine": "Es mio",
-    "unmarkMine": "No es mio"
+    "unmarkMine": "No es mio",
+    "ignoreValue": "No detectar de nuevo",
+    "unignoreValue": "Detectar de nuevo"
   },
   "confirmations": {
     "title": "Confirmar accion",
@@ -229,7 +231,13 @@
       "ethereum": "Direcciones Ethereum",
       "person": "Nombres de personas con analisis contextual",
       "organization": "Nombres de empresas y organizaciones",
-      "location": "Ubicaciones geograficas"
+      "location": "Ubicaciones geograficas",
+      "us_ssn": "Numeros de Seguro Social de EE.UU. (9 digitos, XXX-XX-XXXX)",
+      "us_passport": "Numeros de pasaporte de EE.UU.",
+      "uk_nhs": "Numeros NHS del Reino Unido",
+      "fr_nir": "Numeros de Seguridad Social frances (NIR)",
+      "es_dni": "Numeros de identidad espanol (DNI)",
+      "de_tax_id": "Numeros fiscales alemanes"
     }
   },
   "debug": {

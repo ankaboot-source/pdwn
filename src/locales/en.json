@@ -131,7 +131,9 @@
     "hide": "Hide personal data",
     "revealOne": "Reveal value",
     "markMine": "This is mine",
-    "unmarkMine": "Not mine"
+    "unmarkMine": "Not mine",
+    "ignoreValue": "Don't detect again",
+    "unignoreValue": "Detect again"
   },
   "confirmations": {
     "title": "Please confirm",
@@ -227,9 +229,15 @@
       "mac_address": "MAC addresses",
       "bitcoin": "Bitcoin addresses",
       "ethereum": "Ethereum addresses",
-      "person": "Names of persons with context analysis",
-      "organization": "Company and organization names",
-      "location": "Geographic locations"
+    "person": "Names of persons with context analysis",
+    "organization": "Company and organization names",
+    "location": "Geographic locations",
+    "us_ssn": "US Social Security Numbers (9 digits, XXX-XX-XXXX)",
+    "us_passport": "US Passport numbers",
+    "uk_nhs": "UK NHS numbers",
+    "fr_nir": "French Social Security numbers (NIR)",
+    "es_dni": "Spanish ID numbers (DNI)",
+    "de_tax_id": "German tax ID numbers"
     }
   },
   "debug": {
