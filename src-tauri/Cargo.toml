@@ -42,5 +42,5 @@ getrandom = "0.3"
 trash = "5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-pdf-extract = "0.7"
+pdf-extract = "0.10"
 walkdir = "2"
