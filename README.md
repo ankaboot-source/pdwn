@@ -1,106 +1,99 @@
-# Personal Data Detector
+<h1 align="center">PDWN</h1>
 
-Desktop application to detect personal and sensitive data in user folders. Helps identify and manage files containing sensitive information.
+<p align="center">
+  Personal Data Watch & Neutralize<br/>
+  A local-first desktop app to detect personal data and technical secrets before they become incidents.
+</p>
 
-## Features
+<p align="center">
+  <img alt="CI" src="https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white" />
+  <img alt="Security" src="https://img.shields.io/badge/Security-Gitleaks%20%2B%20Audit-2EA043?logo=dependabot&logoColor=white" />
+  <img alt="Coverage" src="https://img.shields.io/badge/Coverage-Rust%20Gate-0A7F5A" />
+  <img alt="Tauri" src="https://img.shields.io/badge/Desktop-Tauri%202-24C8DB?logo=tauri&logoColor=white" />
+  <img alt="License" src="https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg" />
+</p>
 
-### Data Detection
-- **Personal Data**: Email addresses, phone numbers, postal addresses, dates of birth
-- **Financial Data**: IBAN bank account numbers, credit card numbers
-- **Technical Secrets**: API keys, tokens, passwords, private keys, database connection strings
-- **Cloud Credentials**: AWS, Azure, GCP service accounts and API keys
-- **Identity Documents**: Government IDs (NIR for France, DNI/NIE for Spain)
-- **Custom Detectors**: Define your own detection rules with regex patterns
+<p align="center">
+  <img src="assets/pdwn-wordmark.png" alt="PDWN wordmark" width="420" />
+</p>
 
-### Scanning
-- Initial full scan of watched directories
-- Real-time file system watching for new/modified files
-- Configurable file size limits and depth limits
-- Skip hidden files (Unix) and temporary files
-- Scan progress tracking with cancellation support
+## Why PDWN
 
-### User Interface
-- Multi-language support: English, French, Spanish, German, Arabic
-- Risk-based filtering (Critical, High, Medium, Low)
-- Type-based filtering with multi-select dropdowns
-- Sort by risk, date, or type
-- Detailed report view with redacted examples
-- Keyboard navigation and accessibility
+Personal data and secrets often leak through normal workflows: downloads, exports, attachments, and temporary files.
+PDWN helps you catch these files early by scanning locally, scoring risk clearly, and showing why a file is flagged.
 
-### Actions
-- Mark files as ignored
-- Delete files to system trash
-- Open file location in file manager
-- System tray integration with quick actions
-- Desktop notifications for new alerts and reminders
+## Core features
 
-### Customization
-- Watch multiple directories
-- Configurable reminder schedules (24h, 7 days, 30 days)
-- Custom detection rules with risk levels
-- Locale-based default custom detectors (NIR for French, DNI/NIE for Spanish)
+- Local scanning of watched folders and downloaded files
+- Detection for PII, IDs, financial data, and technical secrets
+- Risk scoring with explainable findings
+- Locale-aware and custom YAML detection types
+- No mandatory cloud dependency for core usage
 
-## Supported File Types
+## Privacy model
 
-- **Documents**: PDF, Word, Excel, PowerPoint, Text files
-- **Archives**: ZIP files (with weak encryption detection)
-- **Images**: PNG, JPG, WebP (with optional OCR)
-- **Configuration**: JSON, YAML, CSV, INI
+- Analysis runs on your machine
+- Revealed sensitive values are not persisted in reports
+- You keep control over what gets scanned and how findings are handled
 
-## Installation
+## Tech stack
 
-### Linux (.AppImage)
+- Desktop shell: Tauri 2 + Rust
+- Frontend: Vite + TypeScript
+- i18n: i18next
+- Quality: Biome, cargo fmt, clippy, Rust tests
 
-The application can be built as an AppImage for easy distribution:
+## Quick start
 
-```bash
-# Install dependencies (if not already installed)
-bun install
+### Prerequisites
 
-# Build the application
-bun tauri build
+- Bun
+- Rust toolchain (stable)
+- Tauri system dependencies for your OS
 
-# Find the built AppImage in:
-# src-tauri/target/release/bundle/appimage/
-
-# Make executable and run
-chmod +x src-tauri/target/release/bundle/appimage/personal-data-detector-desktop_0.1.0_amd64.AppImage
-./src-tauri/target/release/bundle/appimage/personal-data-detector-desktop_0.1.0_amd64.AppImage
-```
-
-Or use the AppImage as a portable application.
-
-### Windows (.msi)
-
-Double-click the installer to install the application. The MSI installer supports:
-- Per-machine installation
-- Silent installation for enterprise deployment
-
-### Development
+### Run in development
 
 ```bash
-# Install dependencies
 bun install
-
-# Run in development mode
 bun tauri dev
+```
 
-# Build for production (creates AppImage and other bundles)
+### Build release binaries
+
+```bash
 bun tauri build
 ```
 
-## Requirements
+## Developer commands
 
-- **Runtime**: WebView2 (Windows), WebKitGTK (Linux)
-- **Minimum OS**: Windows 10, Ubuntu 20.04 or equivalent
-- **Disk Space**: ~50MB for application files
+```bash
+# Full quality gate (TS + formatting + i18n + Rust)
+bun run check
 
-## Privacy
+# Integration dataset consistency
+bun run test:integration
 
-- All scanning is performed locally on your machine
-- No data is sent to external servers
-- Settings and detection rules are stored locally
+# Refresh dataset then run integration test
+bun run test:integration:refresh
+```
+
+## Project standards
+
+CI validates:
+
+- Type checking, linting, and formatting
+- Rust fmt, clippy, and test suite
+- Security scans and dependency auditing
+- Coverage gate on Rust checks
+
+## Contributing
+
+If you want to contribute, start here:
+
+- `CONTRIBUTING.md`
+- `SECURITY.md`
+- `CODE_OF_CONDUCT.md`
 
 ## License
 
-AGPL-3.0-only
+PDWN is licensed under `AGPL-3.0-only`.
