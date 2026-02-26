@@ -174,6 +174,7 @@
     "ignored": "Ignoriert",
     "deleted": "Geloscht",
     "risk": "Risiko",
+    "device": "Gerat",
     "age": "Alter"
   },
   "filters": {
@@ -191,6 +192,13 @@
   "report": {
     "title": "Bericht",
     "select": "Wahle eine Warnung aus, um Details zu sehen.",
+    "dropTitle": "Datei hier ablegen fur Scan auf Abruf",
+    "dropBody": "Wenn fur diese Datei bereits eine Warnung existiert, wird der gespeicherte Bericht automatisch geoffnet.",
+    "dropBrowse": "Datei auswahlen",
+    "dropLoading": "Datei wird gescannt...",
+    "dropInvalid": "Dateipfad aus dem abgelegten Element konnte nicht gelesen werden. Lege eine lokale Datei ab oder nutze Datei auswahlen.",
+    "onDemandActionsUnavailable": "Dies ist ein Bericht auf Abruf. Ignorieren, Anzeigen, Neutralisieren und Loschen sind nur fur gespeicherte Warnungen verfugbar.",
+    "noPersonalData": "In dieser Datei wurden keine personenbezogenen Daten erkannt.",
     "loadError": "Bericht kann nicht angezeigt werden: {{error}}",
     "revealUnavailable": "Keine personenbezogenen Klartextwerte fur diese Datei verfugbar.",
     "fileName": "Dateiname",

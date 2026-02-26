@@ -39,6 +39,7 @@ import {
   pairAsAgent,
   reloadTypeCatalog,
   scanNow,
+  scanPathOnDemand as scanPathOnDemandApi,
   setAgentsMode,
   setServerDeviceEnabled,
   setServerHostTypesYaml,
@@ -77,6 +78,8 @@ let revealLoading = false;
 let neutralizeLoading = false;
 let reportPanelVisible = true;
 let reportLoadError: string | null = null;
+let onDemandScanLoading = false;
+let reportDropActive = false;
 const selectedRiskFilters = new Set<UiAlert["risk_level"]>();
 const selectedTypeFilters = new Set<string>();
 let riskFilterOpen = false;
@@ -214,6 +217,165 @@ async function onScanNow(): Promise<void> {
     isScanning = false;
     render();
   }
+}
+
+function normalizePathForCompare(path: string): string {
+  const normalized = path.trim().replace(/\\/g, "/");
+  if (/^[A-Za-z]:\//.test(normalized)) {
+    return normalized.toLowerCase();
+  }
+  return normalized;
+}
+
+function filePathFromUri(raw: string): string | null {
+  if (!raw.startsWith("file://")) return null;
+  try {
+    const url = new URL(raw);
+    let pathname = decodeURIComponent(url.pathname);
+    if (/^\/[A-Za-z]:\//.test(pathname)) {
+      pathname = pathname.slice(1);
+    }
+    return pathname;
+  } catch {
+    return null;
+  }
+}
+
+function extractDroppedFilePath(ev: DragEvent): string | null {
+  const data = ev.dataTransfer;
+  if (!data) return null;
+
+  const files = data.files;
+  if (files.length > 0) {
+    const file = files[0] as File & { path?: string };
+    if (typeof file.path === "string" && file.path.trim().length > 0) {
+      return file.path;
+    }
+  }
+
+  const uriList = data.getData("text/uri-list").trim();
+  if (uriList.length > 0) {
+    for (const line of uriList.split(/\r?\n/)) {
+      const candidate = line.trim();
+      if (!candidate || candidate.startsWith("#")) continue;
+      const fromUri = filePathFromUri(candidate);
+      if (fromUri) return fromUri;
+    }
+  }
+
+  const plainText = data.getData("text/plain").trim();
+  if (plainText.length > 0) {
+    const fromUri = filePathFromUri(plainText);
+    if (fromUri) return fromUri;
+    if (plainText.startsWith("/") || /^[A-Za-z]:[\\/]/.test(plainText)) {
+      return plainText;
+    }
+  }
+
+  return null;
+}
+
+async function onScanPathOnDemand(path: string): Promise<void> {
+  const normalizedPath = path.trim();
+  if (!normalizedPath) {
+    reportLoadError = t("report.dropInvalid");
+    render();
+    return;
+  }
+
+  const existingAlert = alerts.find(
+    (alert) => normalizePathForCompare(alert.path) === normalizePathForCompare(normalizedPath),
+  );
+  if (existingAlert) {
+    await selectFile(existingAlert.file_id);
+    return;
+  }
+
+  reportPanelVisible = true;
+  selectedFileId = null;
+  selectedReport = null;
+  showRevealed = false;
+  revealLoading = false;
+  neutralizeLoading = false;
+  expandedRedacted.clear();
+  reportLoadError = null;
+  onDemandScanLoading = true;
+  reportDropActive = false;
+  render();
+
+  try {
+    selectedReport = await scanPathOnDemandApi(normalizedPath);
+  } catch (error) {
+    reportLoadError = error instanceof Error ? error.message : String(error);
+  } finally {
+    onDemandScanLoading = false;
+    render();
+  }
+}
+
+async function onPickFileForOnDemandScan(): Promise<void> {
+  const selected = await open({
+    directory: false,
+    multiple: false,
+    title: t("report.dropBrowse"),
+  });
+  const value = Array.isArray(selected) ? selected[0] : selected;
+  if (!value) return;
+  await onScanPathOnDemand(value);
+}
+
+function renderOnDemandDropzone(): HTMLElement {
+  const wrap = el("div", "report-dropzone-wrap");
+  const zone = el("div", `report-dropzone${reportDropActive ? " is-active" : ""}`);
+  zone.append(el("div", "report-dropzone-title", t("report.dropTitle")));
+  zone.append(el("div", "report-dropzone-body", t("report.dropBody")));
+
+  const browseBtn = el("button", "btn btn-mini", t("report.dropBrowse")) as HTMLButtonElement;
+  browseBtn.disabled = onDemandScanLoading;
+  browseBtn.addEventListener("click", () => void onPickFileForOnDemandScan());
+  zone.append(browseBtn);
+
+  if (onDemandScanLoading) {
+    const loading = el("div", "report-dropzone-loading");
+    loading.append(el("span", "spinner"));
+    loading.append(document.createTextNode(t("report.dropLoading")));
+    zone.append(loading);
+  }
+
+  zone.addEventListener("dragenter", (ev) => {
+    ev.preventDefault();
+    reportDropActive = true;
+    render();
+  });
+  zone.addEventListener("dragover", (ev) => {
+    ev.preventDefault();
+    if (!reportDropActive) {
+      reportDropActive = true;
+      render();
+    }
+  });
+  zone.addEventListener("dragleave", (ev) => {
+    const relatedTarget = ev.relatedTarget as Node | null;
+    if (relatedTarget && zone.contains(relatedTarget)) {
+      return;
+    }
+    reportDropActive = false;
+    render();
+  });
+  zone.addEventListener("drop", (ev) => {
+    ev.preventDefault();
+    reportDropActive = false;
+    const droppedPath = extractDroppedFilePath(ev);
+    if (!droppedPath) {
+      reportLoadError = t("report.dropInvalid");
+      render();
+      return;
+    }
+    void onScanPathOnDemand(droppedPath);
+  });
+
+  wrap.append(zone);
+  return wrap;
 }
 
 async function saveWatchedDirectories(dirs: string[]): Promise<void> {
@@ -673,28 +835,70 @@ function summarizeTypes(a: UiAlert | Report): string {
   return parts.join(", ");
 }
 
-function alertHasType(a: UiAlert, type: string): boolean {
-  if (type === "weak_archive_encryption") return a.weak_zip_encryption;
+type AlertListItem = { kind: "local"; local: UiAlert } | { kind: "server"; remote: ServerAlert };
+
+function isServerMode(): boolean {
+  return agentsState?.mode === "server";
+}
+
+function isAgentPaired(): boolean {
   return (
-    a.pii_summary.some((f) => f.category === type && f.count > 0) ||
-    a.custom_summary.some((f) => f.category === type && f.count > 0)
+    agentsState?.mode === "agent" &&
+    Boolean(agentsState.paired_server_url) &&
+    !agentsState.pair_expired
   );
 }
 
-function primaryType(a: UiAlert): string {
-  if (a.weak_zip_encryption) return piiLabel("weak_archive_encryption");
-  const top = [...a.pii_summary]
-    .filter((f) => f.count > 0 && f.category !== "file_name_signal")
-    .sort((x, y) => y.count - x.count)[0];
-  if (!top) return piiLabel("file_name_signal");
-  return piiLabel(top.category);
+function alertHasType(item: AlertListItem, type: string): boolean {
+  if (item.kind === "local") {
+    if (type === "weak_archive_encryption") return item.local.weak_zip_encryption;
+    return (
+      item.local.pii_summary.some((f) => f.category === type && f.count > 0) ||
+      item.local.custom_summary.some((f) => f.category === type && f.count > 0)
+    );
+  }
+  if (type === "weak_archive_encryption") {
+    return item.remote.types.includes(type);
+  }
+  return item.remote.types.includes(type);
 }
 
-function visibleAlerts(): UiAlert[] {
-  let items = alerts.filter((a) => (showIgnored ? true : !a.ignored));
+function primaryType(item: AlertListItem): string {
+  if (item.kind === "local") {
+    if (item.local.weak_zip_encryption) return piiLabel("weak_archive_encryption");
+    const top = [...item.local.pii_summary]
+      .filter((f) => f.count > 0 && f.category !== "file_name_signal")
+      .sort((x, y) => y.count - x.count)[0];
+    if (!top) return piiLabel("file_name_signal");
+    return piiLabel(top.category);
+  }
+  const first = item.remote.types[0];
+  if (!first) return "-";
+  return categoryLabel(first);
+}
+
+function alertRisk(item: AlertListItem): UiAlert["risk_level"] {
+  if (item.kind === "local") {
+    return item.local.risk_level;
+  }
+  const raw = item.remote.risk_level as UiAlert["risk_level"];
+  return raw;
+}
+
+function alertTime(item: AlertListItem): number {
+  return item.kind === "local" ? item.local.last_seen_at : item.remote.received_at;
+}
+
+function visibleAlerts(): AlertListItem[] {
+  let items: AlertListItem[] = alerts
+    .filter((a) => (showIgnored ? true : !a.ignored))
+    .map((a) => ({ kind: "local", local: a }));
+  if (isServerMode()) {
+    items = items.concat(serverAlerts.map((a) => ({ kind: "server", remote: a })));
+  }
 
   if (selectedRiskFilters.size > 0) {
-    items = items.filter((a) => selectedRiskFilters.has(a.risk_level));
+    items = items.filter((a) => selectedRiskFilters.has(alertRisk(a)));
   }
   if (selectedTypeFilters.size > 0) {
     items = items.filter((a) =>
@@ -704,13 +908,13 @@ function visibleAlerts(): UiAlert[] {
 
   items = [...items].sort((a, b) => {
     if (sortBy === "risk_desc") {
-      return riskRank(b.risk_level) - riskRank(a.risk_level) || b.last_seen_at - a.last_seen_at;
+      return riskRank(alertRisk(b)) - riskRank(alertRisk(a)) || alertTime(b) - alertTime(a);
     }
     if (sortBy === "risk_asc") {
-      return riskRank(a.risk_level) - riskRank(b.risk_level) || b.last_seen_at - a.last_seen_at;
+      return riskRank(alertRisk(a)) - riskRank(alertRisk(b)) || alertTime(b) - alertTime(a);
     }
     if (sortBy === "recent") {
-      return b.last_seen_at - a.last_seen_at;
+      return alertTime(b) - alertTime(a);
     }
     return primaryType(a).localeCompare(primaryType(b));
   });
@@ -861,6 +1065,11 @@ async function openAgplLicense(): Promise<void> {
 async function refreshAlerts(): Promise<void> {
   debugLog("refreshAlerts:start");
   alerts = await listAlerts();
+  if (isServerMode()) {
+    serverAlerts = await listServerAlerts(200);
+  } else {
+    serverAlerts = [];
+  }
   debugLog("refreshAlerts:done", { count: alerts.length });
   if (selectedFileId && !alerts.find((a) => a.file_id === selectedFileId)) {
     selectedFileId = null;
@@ -1085,6 +1294,8 @@ async function selectFile(fileId: number): Promise<void> {
   showRevealed = false;
   revealLoading = false;
   neutralizeLoading = false;
+  onDemandScanLoading = false;
+  reportDropActive = false;
   expandedRedacted.clear();
   reportLoadError = null;
   try {
@@ -1399,6 +1610,16 @@ function render(): void {
         .filter((c) => c && c.trim().length > 0),
     ),
   ).sort((a, b) => a.localeCompare(b));
+  if (isServerMode()) {
+    for (const alert of serverAlerts) {
+      for (const type of alert.types) {
+        if (!isBuiltinCategory(type) && !customTypeOptions.includes(type)) {
+          customTypeOptions.push(type);
+        }
+      }
+    }
+    customTypeOptions.sort((a, b) => a.localeCompare(b));
+  }
   typeOptions.push(...customTypeOptions);
   if (typeFilterOpen) {
     const menu = el("div", "filter-menu");
@@ -1474,27 +1695,50 @@ function render(): void {
   if (visible.length === 0) {
     list.append(el("div", "empty", t("alerts.empty")));
   } else {
-    for (const a of visible) {
+    for (const itemData of visible) {
+      const isLocal = itemData.kind === "local";
+      const fileId = isLocal ? itemData.local.file_id : null;
+      const path = isLocal ? itemData.local.path : itemData.remote.path;
+      const riskLevel = isLocal ? itemData.local.risk_level : alertRisk(itemData);
+      const ignored = isLocal ? itemData.local.ignored : false;
       const item = el("button", "alert-item");
-      item.dataset.fileId = String(a.file_id);
-      if (a.file_id === selectedFileId) item.dataset.selected = "true";
-      if (a.ignored) item.dataset.ignored = "true";
+      if (fileId !== null) {
+        item.dataset.fileId = String(fileId);
+      }
+      if (fileId !== null && fileId === selectedFileId) item.dataset.selected = "true";
+      if (ignored) item.dataset.ignored = "true";
+      if (!isLocal) {
+        (item as HTMLButtonElement).disabled = true;
+      }
 
       const topRow = el("div", "alert-top");
-      const nameEl = el("div", "alert-path", fileNameFromPath(a.path));
-      nameEl.title = a.path;
+      const nameEl = el("div", "alert-path", fileNameFromPath(path));
+      nameEl.title = path;
       topRow.append(nameEl);
 
-      const badge = el("div", `badge badge-${a.risk_level}`, riskLabel(a.risk_level));
+      const badge = el("div", `badge badge-${riskLevel}`, riskLabel(riskLevel));
       topRow.append(badge);
       item.append(topRow);
 
       const meta = el("div", "alert-meta");
-      meta.append(el("div", "alert-types", summarizeTypes(a) || piiLabel("file_name_signal")));
-      meta.append(el("div", "alert-age", fmtAge(a.last_seen_at)));
+      if (isLocal) {
+        meta.append(
+          el("div", "alert-types", summarizeTypes(itemData.local) || piiLabel("file_name_signal")),
+        );
+      } else {
+        meta.append(el("div", "alert-types", itemData.remote.types.join(", ") || "-"));
+      }
+      meta.append(el("div", "alert-age", fmtAge(alertTime(itemData))));
+      if (!isLocal && isServerMode()) {
+        meta.append(
+          el("div", "alert-age", `${t("alerts.device")}: ${itemData.remote.device_name}`),
+        );
+      }
       item.append(meta);
 
-      item.addEventListener("click", () => void selectFile(a.file_id));
+      if (fileId !== null) {
+        item.addEventListener("click", () => void selectFile(fileId));
+      }
       list.append(item);
     }
   }
@@ -1511,6 +1755,8 @@ function render(): void {
       selectedReport = null;
       showRevealed = false;
       neutralizeLoading = false;
+      onDemandScanLoading = false;
+      reportDropActive = false;
       reportLoadError = null;
       expandedRedacted.clear();
       render();
@@ -1520,10 +1766,14 @@ function render(): void {
     const body = el("div", "report");
     if (reportLoadError) {
       body.append(el("div", "warn", t("report.loadError", { error: reportLoadError })));
+      if (!selectedReport) {
+        body.append(renderOnDemandDropzone());
+      }
     } else if (!selectedReport) {
-      body.append(el("div", "empty", t("report.select")));
+      body.append(renderOnDemandDropzone());
     } else {
       const r = selectedReport;
+      const persistedReport = selectedFileId !== null;
       const meta = el("div", "report-meta");
       const metaLeft = el("div", "report-meta-left");
       metaLeft.append(kvRow(t("report.fileName"), fileNameFromPath(r.path), "kv-row-file"));
@@ -1545,10 +1795,8 @@ function render(): void {
       body.append(el("h3", "sub", t("report.findings")));
       body.append(renderFindings(r));
 
-      body.append(el("h3", "sub", t("report.reasons")));
-      const reasons = el("ul", "reasons");
+      const reasonItems: string[] = [];
       for (const reason of r.reasons.slice(0, 12)) {
-        const li = document.createElement("li");
         const vars = { ...(reason.vars ?? {}) } as Record<string, unknown>;
         if (typeof vars.category === "string") {
           vars.category = piiLabel(vars.category);
@@ -1556,13 +1804,21 @@ function render(): void {
         if (typeof vars.risk === "string") {
           vars.risk = riskLabel(vars.risk as UiAlert["risk_level"]);
         }
-        li.textContent = t(reason.key, vars as never);
-        reasons.append(li);
+        const text = t(reason.key, vars as never).trim();
+        if (text.length > 0) {
+          reasonItems.push(text);
+        }
       }
-      body.append(reasons);
-
-      body.append(el("h3", "sub", t("report.suggestion")));
-      body.append(el("div", "suggestion", r.suggestion));
+      if (reasonItems.length > 0) {
+        body.append(el("h3", "sub", t("report.reasons")));
+        const reasons = el("ul", "reasons");
+        for (const text of reasonItems) {
+          const li = document.createElement("li");
+          li.textContent = text;
+          reasons.append(li);
+        }
+        body.append(reasons);
+      }
 
       const actions = el("div", "actions");
       const openFolderBtn = el("button", "btn", withIcon("📂", t("actions.openFolder")));
@@ -1600,10 +1856,13 @@ function render(): void {
           ? withIcon("✅", t("actions.unignore"))
           : withIcon("🚫", t("actions.ignore")),
       );
+      (ignoreBtn as HTMLButtonElement).disabled = !persistedReport;
       ignoreBtn.addEventListener("click", () => void onIgnoreToggle());
       actions.append(ignoreBtn);
 
       const revealAllowed = canRevealReport(r);
+      const hasAnyFinding =
+        r.findings.some((f) => f.count > 0) || r.custom_findings.some((f) => f.count > 0);
       const revealBtn = el(
         "button",
         "btn",
@@ -1617,10 +1876,11 @@ function render(): void {
       if (revealLoading) {
         revealBtn.prepend(el("span", "spinner"));
       }
-      (revealBtn as HTMLButtonElement).disabled = !revealAllowed || revealLoading;
+      (revealBtn as HTMLButtonElement).disabled =
+        !persistedReport || !revealAllowed || revealLoading;
       revealBtn.addEventListener("click", () => void toggleReveal());
       actions.append(revealBtn);
-      if (!revealAllowed) {
+      if (!revealAllowed && hasAnyFinding) {
         body.append(el("div", "empty", t("report.revealUnavailable")));
       }
 
@@ -1633,15 +1893,20 @@ function render(): void {
       if (neutralizeLoading) {
         neutralizeBtn.prepend(el("span", "spinner"));
       }
-      (neutralizeBtn as HTMLButtonElement).disabled = neutralizeLoading || !neutralizeAllowed;
+      (neutralizeBtn as HTMLButtonElement).disabled =
+        !persistedReport || neutralizeLoading || !neutralizeAllowed;
       neutralizeBtn.addEventListener("click", () => void onNeutralize());
       actions.append(neutralizeBtn);
 
       const deleteBtn = el("button", "btn danger", withIcon("🗑", t("actions.delete")));
+      (deleteBtn as HTMLButtonElement).disabled = !persistedReport;
       deleteBtn.addEventListener("click", () => void onDelete());
       actions.append(deleteBtn);
 
       body.append(actions);
+      if (!persistedReport) {
+        body.append(el("div", "empty", t("report.onDemandActionsUnavailable")));
+      }
     }
     right.append(body);
     main.append(right);
@@ -1827,26 +2092,6 @@ function render(): void {
           body.append(devicesList);
         }
 
-        body.append(el("h4", "entity-section-title", t("agents.alertsTitle")));
-        if (serverAlerts.length === 0) {
-          body.append(el("div", "empty", t("agents.alertsEmpty")));
-        } else {
-          const alertsList = el("div", "type-list");
-          for (const alert of serverAlerts) {
-            const row = el("div", "report-meta");
-            const leftCol = el("div", "report-meta-left");
-            leftCol.append(kvRow(t("agents.deviceName"), alert.device_name));
-            leftCol.append(kvRow(t("report.path"), alert.path));
-            const rightCol = el("div", "report-meta-right");
-            rightCol.append(kvRow(t("alerts.risk"), `${alert.risk_level} (${alert.risk_score})`));
-            rightCol.append(kvRow(t("agents.receivedAt"), fmtDate(alert.received_at)));
-            rightCol.append(kvRow(t("agents.typesLabel"), alert.types.join(", ") || "-"));
-            row.append(leftCol, rightCol);
-            alertsList.append(row);
-          }
-          body.append(alertsList);
-        }
-
         body.append(el("h4", "entity-section-title", t("agents.hostTypesTitle")));
         const hostTypesInput = document.createElement("textarea");
         hostTypesInput.className = "custom-input";
@@ -1863,7 +2108,7 @@ function render(): void {
         body.append(hostActions);
       } else {
         body.append(el("div", "suggestion", t("agents.agentHelp")));
-        const isPaired = Boolean(agentsState?.paired_server_url) && !agentsState?.pair_expired;
+        const isPaired = isAgentPaired();
         if (isPaired) {
           body.append(kvRow(t("agents.pairedServer"), agentsState?.paired_server_url ?? "-"));
           if (!agentsState?.agent_enabled) {
@@ -1962,16 +2207,21 @@ function render(): void {
       });
       tabs.append(tStandard);
 
-      const tHost = el(
-        "button",
-        `btn btn-mini ${typesTab === "host" ? "active-tab" : ""}`,
-        t("types.hostTab"),
-      );
-      tHost.addEventListener("click", () => {
-        typesTab = "host";
-        render();
-      });
-      tabs.append(tHost);
+      const showHostTab = isAgentPaired();
+      if (showHostTab) {
+        const tHost = el(
+          "button",
+          `btn btn-mini ${typesTab === "host" ? "active-tab" : ""}`,
+          t("types.hostTab"),
+        );
+        tHost.addEventListener("click", () => {
+          typesTab = "host";
+          render();
+        });
+        tabs.append(tHost);
+      } else if (typesTab === "host") {
+        typesTab = "custom";
+      }
 
       const typesToolbar = el("div", "types-toolbar");
       typesToolbar.append(tabs);
@@ -2449,7 +2699,7 @@ function renderFindings(r: Report): HTMLElement {
   const custom = r.custom_findings.filter((f) => f.count > 0);
   if (findings.length === 0) {
     if (custom.length === 0) {
-      wrap.append(el("div", "empty", "-"));
+      wrap.append(el("div", "empty", t("report.noPersonalData")));
       return wrap;
     }
   }
