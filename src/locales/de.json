@@ -74,6 +74,9 @@
     "alertsEmpty": "Noch keine Alerts empfangen.",
     "receivedAt": "Empfangen am",
     "typesLabel": "Typen",
+    "hostTypesTitle": "Host-Typen (YAML)",
+    "saveHostTypes": "Host-Typen speichern",
+    "syncHostTypes": "Host-Typen synchronisieren",
     "internetConfirm": "Diese Server-URL wirkt wie ein Internet-Endpunkt. Pairing fortsetzen?",
     "internetDeclined": "Pairing vom Benutzer abgebrochen."
   },
@@ -99,6 +102,7 @@
   "types": {
     "standardTab": "Standard",
     "regionalTab": "Regional",
+    "hostTab": "Host",
     "customTab": "Benutzerdefiniert",
     "readOnly": "Nur lesen",
     "standardHelp": "Standardtypen sind integriert und schreibgeschutzt. Verwende benutzerdefinierte Typen fur lokale oder fachliche Daten.",
@@ -127,6 +131,7 @@
     "activeLocale": "Locale: {{locale}}",
     "standardTypesTitle": "Standardtypen-Katalog",
     "regionalTypesTitle": "Regionale Typen",
+    "hostTypesTitle": "Host-Typkatalog",
     "customYamlTitle": "Benutzerdefinierte YAML-Typen",
     "openConfigDir": "Typenordner offnen",
     "empty": "Keine Typen in diesem Tab.",
@@ -148,6 +153,7 @@
     "origin": {
       "base": "Standardkatalog",
       "locale": "Lokale Überschreibung",
+      "host": "Host-Richtlinie",
       "custom": "Benutzerdefiniert"
     }
   },

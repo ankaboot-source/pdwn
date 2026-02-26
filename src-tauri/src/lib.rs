@@ -901,9 +901,12 @@ pub fn run() {
                 let locale = app_locale();
                 let custom_types_file =
                     user_custom_types_file(&app_handle).map_err(anyhow::Error::msg)?;
+                let host_types_file =
+                    user_host_types_file(&app_handle).map_err(anyhow::Error::msg)?;
                 let type_catalog = match type_catalog::TypeRegistry::load(
                     &locale,
                     Some(custom_types_file.as_path()),
+                    Some(host_types_file.as_path()),
                 ) {
                     Ok(reg) => reg,
                     Err(e) => {
@@ -984,6 +987,9 @@ pub fn run() {
             set_server_device_enabled,
             unpair_server_device,
             list_server_alerts,
+            get_server_host_types_yaml,
+            set_server_host_types_yaml,
+            sync_host_types_from_server,
             list_custom_detectors,
             create_custom_detector,
             update_custom_detector,
@@ -1056,7 +1062,12 @@ async fn list_type_definitions(
 async fn reload_type_catalog(app: AppHandle) -> Result<String, String> {
     let locale = app_locale();
     let custom_types_file = user_custom_types_file(&app)?;
-    match type_catalog::TypeRegistry::load(&locale, Some(custom_types_file.as_path())) {
+    let host_types_file = user_host_types_file(&app)?;
+    match type_catalog::TypeRegistry::load(
+        &locale,
+        Some(custom_types_file.as_path()),
+        Some(host_types_file.as_path()),
+    ) {
         Ok(new_catalog) => {
             let app_state = app.state::<AppState>();
             let mut catalog = app_state.type_catalog.lock().await;
@@ -1080,12 +1091,95 @@ async fn upsert_custom_type_definition(
     reload_type_catalog(app).await
 }
 
+#[tauri::command]
+async fn get_server_host_types_yaml(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    agents::get_server_host_types_yaml(&state.db)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_server_host_types_yaml(
+    state: tauri::State<'_, AppState>,
+    yaml: String,
+) -> Result<i64, String> {
+    agents::set_server_host_types_yaml(&state.db, &yaml)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn sync_host_types_from_server(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let mode = state
+        .db
+        .get_kv("agents_mode")
+        .await
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| "agent".to_string());
+    if mode != "agent" {
+        return Err("host types sync is available in agent mode only".to_string());
+    }
+
+    let server_url = state
+        .db
+        .get_kv("agent_server_url")
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "agent is not paired".to_string())?;
+    let token = state
+        .db
+        .get_kv("agent_token")
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "agent token is missing".to_string())?;
+
+    let (version, yaml) = agents::fetch_host_types_policy(&state.db, &server_url, &token).await?;
+    let current_version = parse_i64_opt(
+        state
+            .db
+            .get_kv("agent_host_types_version")
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .unwrap_or_default();
+    if version <= current_version {
+        return Ok("Host types already up to date".to_string());
+    }
+
+    let host_types_file = user_host_types_file(&app)?;
+    if let Some(parent) = host_types_file.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create {}: {}", parent.display(), e))?;
+    }
+    std::fs::write(&host_types_file, yaml)
+        .map_err(|e| format!("Failed to write {}: {}", host_types_file.display(), e))?;
+
+    state
+        .db
+        .set_kv("agent_host_types_version", &version.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    reload_type_catalog(app).await
+}
+
 fn user_custom_types_file(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     let config_dir = app
         .path()
         .app_config_dir()
         .map_err(|e| format!("Failed to resolve app config dir: {}", e))?;
     Ok(config_dir.join("types").join("custom.yaml"))
+}
+
+fn user_host_types_file(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to resolve app config dir: {}", e))?;
+    Ok(config_dir.join("types").join("host.yaml"))
 }
 
 fn app_locale() -> String {

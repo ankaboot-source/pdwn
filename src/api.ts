@@ -325,3 +325,15 @@ export async function unpairServerDevice(deviceId: string): Promise<void> {
 export async function listServerAlerts(limit = 50): Promise<ServerAlert[]> {
   return invoke("list_server_alerts", { limit });
 }
+
+export async function getServerHostTypesYaml(): Promise<string> {
+  return invoke("get_server_host_types_yaml");
+}
+
+export async function setServerHostTypesYaml(yaml: string): Promise<number> {
+  return invoke("set_server_host_types_yaml", { yaml });
+}
+
+export async function syncHostTypesFromServer(): Promise<string> {
+  return invoke("sync_host_types_from_server");
+}

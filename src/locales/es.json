@@ -74,6 +74,9 @@
     "alertsEmpty": "No se recibieron alertas todavia.",
     "receivedAt": "Recibido el",
     "typesLabel": "Tipos",
+    "hostTypesTitle": "Tipos Host (YAML)",
+    "saveHostTypes": "Guardar tipos Host",
+    "syncHostTypes": "Sincronizar tipos Host",
     "internetConfirm": "Esta URL parece ser un endpoint de Internet. Continuar con el emparejamiento?",
     "internetDeclined": "Emparejamiento cancelado por el usuario."
   },
@@ -99,6 +102,7 @@
   "types": {
     "standardTab": "Estandar",
     "regionalTab": "Regionales",
+    "hostTab": "Host",
     "customTab": "Personalizados",
     "readOnly": "Solo lectura",
     "standardHelp": "Los tipos estandar son integrados y de solo lectura. Usa tipos personalizados para datos locales o de negocio.",
@@ -127,6 +131,7 @@
     "activeLocale": "Locale: {{locale}}",
     "standardTypesTitle": "Catalogo de tipos estandar",
     "regionalTypesTitle": "Catalogo de tipos regionales",
+    "hostTypesTitle": "Catalogo Host de tipos",
     "customYamlTitle": "Tipos YAML personalizados",
     "openConfigDir": "Abrir carpeta de tipos",
     "empty": "No hay tipos en esta pestana.",
@@ -148,6 +153,7 @@
     "origin": {
       "base": "Catálogo predeterminado",
       "locale": "Anulación local",
+      "host": "Politica Host",
       "custom": "Personalizado"
     }
   },

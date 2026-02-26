@@ -26,6 +26,7 @@ import {
   deleteFileToTrash,
   getAgentsState,
   getReport,
+  getServerHostTypesYaml,
   getSettings,
   ignoreFile,
   ignoreValue,
@@ -40,8 +41,10 @@ import {
   scanNow,
   setAgentsMode,
   setServerDeviceEnabled,
+  setServerHostTypesYaml,
   setSettings,
   stopScan,
+  syncHostTypesFromServer,
   unignoreFile,
   unignoreValue,
   unpairAgent,
@@ -86,7 +89,7 @@ let menuOpen = false;
 let dialog: "about" | "types" | "agents" | null = null;
 let aboutTab: "about" | "legal" = "about";
 let legalDependenciesVisible = false;
-let typesTab: "standard" | "regional" | "custom" = "standard";
+let typesTab: "standard" | "regional" | "host" | "custom" = "standard";
 let typeDefinitions: TypeDefinition[] = [];
 let typeDefinitionsLoading = false;
 let typeDefinitionsLoaded = false;
@@ -96,6 +99,7 @@ let agentsLoading = false;
 let agentsError: string | null = null;
 let serverDevices: ServerDevice[] = [];
 let serverAlerts: ServerAlert[] = [];
+let serverHostTypesYaml = "types: []\n";
 let agentServerUrlInput = "";
 let agentPairCodeInput = "";
 let agentPairDaysInput = "14";
@@ -439,6 +443,7 @@ function typeOriginLabel(origin: string): string {
   const map: Record<string, string> = {
     "standard/base": t("types.origin.base"),
     "standard/locale": t("types.origin.locale"),
+    host: t("types.origin.host"),
     custom: t("types.origin.custom"),
   };
   return map[origin] ?? origin;
@@ -470,7 +475,7 @@ function currentRuntimeLocale(): string {
   return locale.replace("_", "-");
 }
 
-function typesForTab(tab: "standard" | "regional" | "custom"): TypeDefinition[] {
+function typesForTab(tab: "standard" | "regional" | "host" | "custom"): TypeDefinition[] {
   if (tab === "standard") {
     return typeDefinitions.filter((d) => d.origin === "standard/base" && !d.locale_requirement);
   }
@@ -480,6 +485,9 @@ function typesForTab(tab: "standard" | "regional" | "custom"): TypeDefinition[] 
         (d.origin === "standard/locale" || Boolean(d.locale_requirement)) &&
         localeRequirementMatches(d.locale_requirement),
     );
+  }
+  if (tab === "host") {
+    return typeDefinitions.filter((d) => d.origin === "host");
   }
   return typeDefinitions.filter((d) => d.origin === "custom");
 }
@@ -911,13 +919,19 @@ async function refreshServerPanelData(): Promise<void> {
   if (agentsState?.mode !== "server") {
     serverDevices = [];
     serverAlerts = [];
+    serverHostTypesYaml = "types: []\n";
     return;
   }
 
   try {
-    const [devices, alerts] = await Promise.all([listServerDevices(), listServerAlerts(50)]);
+    const [devices, alerts, hostYaml] = await Promise.all([
+      listServerDevices(),
+      listServerAlerts(50),
+      getServerHostTypesYaml(),
+    ]);
     serverDevices = devices;
     serverAlerts = alerts;
+    serverHostTypesYaml = hostYaml;
   } catch (error) {
     agentsError = error instanceof Error ? error.message : String(error);
   }
@@ -967,6 +981,8 @@ async function onPairAsAgent(confirmInternet: boolean): Promise<void> {
       confirmInternet,
       validDays,
     );
+    await syncHostTypesFromServer();
+    await refreshTypeDefinitions();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes("internet_confirmation_required") && !confirmInternet) {
@@ -1025,6 +1041,35 @@ async function onUnpairServerDevice(deviceId: string): Promise<void> {
   try {
     await unpairServerDevice(deviceId);
     await refreshServerPanelData();
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function onSaveServerHostTypes(): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    await setServerHostTypesYaml(serverHostTypesYaml);
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function onSyncHostTypes(): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    await syncHostTypesFromServer();
+    await refreshTypeDefinitions();
   } catch (error) {
     agentsError = error instanceof Error ? error.message : String(error);
   } finally {
@@ -1801,6 +1846,21 @@ function render(): void {
           }
           body.append(alertsList);
         }
+
+        body.append(el("h4", "entity-section-title", t("agents.hostTypesTitle")));
+        const hostTypesInput = document.createElement("textarea");
+        hostTypesInput.className = "custom-input";
+        hostTypesInput.rows = 8;
+        hostTypesInput.value = serverHostTypesYaml;
+        hostTypesInput.addEventListener("input", () => {
+          serverHostTypesYaml = hostTypesInput.value;
+        });
+        body.append(hostTypesInput);
+        const hostActions = el("div", "actions");
+        const saveHostBtn = el("button", "btn", t("agents.saveHostTypes"));
+        saveHostBtn.addEventListener("click", () => void onSaveServerHostTypes());
+        hostActions.append(saveHostBtn);
+        body.append(hostActions);
       } else {
         body.append(el("div", "suggestion", t("agents.agentHelp")));
         const isPaired = Boolean(agentsState?.paired_server_url) && !agentsState?.pair_expired;
@@ -1816,6 +1876,9 @@ function render(): void {
           const unpairBtn = el("button", "btn danger", t("agents.unpair"));
           unpairBtn.addEventListener("click", () => void onUnpairAgent());
           actions.append(unpairBtn);
+          const syncHostBtn = el("button", "btn", t("agents.syncHostTypes"));
+          syncHostBtn.addEventListener("click", () => void onSyncHostTypes());
+          actions.append(syncHostBtn);
           body.append(actions);
         } else {
           if (agentsState?.pair_expired) {
@@ -1896,6 +1959,17 @@ function render(): void {
       });
       tabs.append(tStandard);
 
+      const tHost = el(
+        "button",
+        `btn btn-mini ${typesTab === "host" ? "active-tab" : ""}`,
+        t("types.hostTab"),
+      );
+      tHost.addEventListener("click", () => {
+        typesTab = "host";
+        render();
+      });
+      tabs.append(tHost);
+
       const typesToolbar = el("div", "types-toolbar");
       typesToolbar.append(tabs);
       const typesActions = el("div", "types-actions");
@@ -1931,17 +2005,19 @@ function render(): void {
         const titleKeyByTab: Record<typeof typesTab, string> = {
           standard: "types.standardTypesTitle",
           regional: "types.regionalTypesTitle",
+          host: "types.hostTypesTitle",
           custom: "types.customTab",
         };
         const emptyKeyByTab: Record<typeof typesTab, string> = {
           standard: "types.empty",
           regional: "types.empty",
+          host: "types.empty",
           custom: "custom.empty",
         };
 
         const sectionHead = el("div", "types-section-head");
         sectionHead.append(el("h4", "entity-section-title", t(titleKeyByTab[typesTab])));
-        if (typesTab === "standard") {
+        if (typesTab === "standard" || typesTab === "host") {
           sectionHead.append(el("span", "readonly-badge", t("types.readOnly")));
         }
         body.append(sectionHead);

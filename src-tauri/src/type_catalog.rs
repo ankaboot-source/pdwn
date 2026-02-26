@@ -51,7 +51,11 @@ pub struct TypeRegistry {
 }
 
 impl TypeRegistry {
-    pub fn load(locale: &str, user_custom_file: Option<&Path>) -> Result<Self, String> {
+    pub fn load(
+        locale: &str,
+        user_custom_file: Option<&Path>,
+        host_types_file: Option<&Path>,
+    ) -> Result<Self, String> {
         let mut registry: HashMap<String, TypeDefinition> = HashMap::new();
 
         Self::load_into_registry("base.yaml", "standard/base", &mut registry)?;
@@ -69,6 +73,16 @@ impl TypeRegistry {
                 tracing::warn!(
                     "Failed to load user custom types from {}: {}",
                     user_path.display(),
+                    e
+                );
+            }
+        }
+
+        if let Some(host_path) = host_types_file {
+            if let Err(e) = Self::load_into_registry_from_path(host_path, "host", &mut registry) {
+                tracing::warn!(
+                    "Failed to load host types from {}: {}",
+                    host_path.display(),
                     e
                 );
             }

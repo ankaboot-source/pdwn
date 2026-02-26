@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
+use axum::routing::get;
 use axum::routing::post;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -79,6 +80,12 @@ struct AlertIngestResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct PolicyResponse {
+    version: i64,
+    host_types_yaml: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct AgentAlertPayload {
     file_id: i64,
     path: String,
@@ -127,6 +134,7 @@ pub async fn sync_server_runtime(state: AppState) -> Result<()> {
     let app = Router::new()
         .route("/api/agents/pair", post(pair_agent))
         .route("/api/agents/alerts", post(ingest_alert))
+        .route("/api/agents/policy", get(get_policy))
         .with_state(ServerApiState {
             db: state.db.clone(),
         });
@@ -223,6 +231,52 @@ pub async fn send_alert_if_agent(db: Arc<Db>, file_id: i64) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+pub async fn fetch_host_types_policy(
+    db: &Db,
+    server_url: &str,
+    token: &str,
+) -> Result<(i64, String), String> {
+    let url = format!("{}/api/agents/policy", server_url.trim_end_matches('/'));
+    let client = reqwest::Client::new();
+    let response = client
+        .get(url)
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "policy fetch failed with status {}",
+            response.status()
+        ));
+    }
+    let payload = response
+        .json::<PolicyResponse>()
+        .await
+        .map_err(|e| e.to_string())?;
+    db.set_kv("agent_device_enabled", "true")
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok((payload.version, payload.host_types_yaml))
+}
+
+pub async fn get_server_host_types_yaml(db: &Db) -> Result<String> {
+    Ok(db
+        .get_kv("server_host_types_yaml")
+        .await?
+        .unwrap_or_else(|| "types: []\n".to_string()))
+}
+
+pub async fn set_server_host_types_yaml(db: &Db, yaml: &str) -> Result<i64> {
+    let _: serde_yaml::Value =
+        serde_yaml::from_str(yaml).map_err(|e| anyhow!("invalid YAML: {}", e))?;
+    let version = now_ts();
+    db.set_kv("server_host_types_yaml", yaml).await?;
+    db.set_kv("server_host_types_version", &version.to_string())
+        .await?;
+    Ok(version)
 }
 
 pub async fn list_server_devices(db: &Db) -> Result<Vec<ServerDeviceView>> {
@@ -435,6 +489,60 @@ async fn ingest_alert(
         .map_err(internal_error)?;
 
     Ok(Json(AlertIngestResponse { ok: true }))
+}
+
+async fn get_policy(
+    State(state): State<ServerApiState>,
+    headers: HeaderMap,
+) -> Result<Json<PolicyResponse>, (StatusCode, String)> {
+    let auth = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    let token = auth.trim().strip_prefix("Bearer ").unwrap_or_default();
+    if token.is_empty() {
+        return Err((StatusCode::UNAUTHORIZED, "missing bearer token".to_string()));
+    }
+
+    let now = now_ts();
+    let mut devices = load_devices(&state.db).await.map_err(internal_error)?;
+    let device = devices
+        .iter_mut()
+        .find(|d| d.token == token)
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "unknown token".to_string()))?;
+    if !device.enabled {
+        return Err((StatusCode::FORBIDDEN, "device disabled".to_string()));
+    }
+    if device.expires_at <= now {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "device pairing expired".to_string(),
+        ));
+    }
+    device.last_seen_at = Some(now);
+    save_devices(&state.db, &devices)
+        .await
+        .map_err(internal_error)?;
+
+    let host_types_yaml = state
+        .db
+        .get_kv("server_host_types_yaml")
+        .await
+        .map_err(internal_error)?
+        .unwrap_or_else(|| "types: []\n".to_string());
+    let version = parse_i64_opt(
+        state
+            .db
+            .get_kv("server_host_types_version")
+            .await
+            .map_err(internal_error)?,
+    )
+    .unwrap_or_default();
+
+    Ok(Json(PolicyResponse {
+        version,
+        host_types_yaml,
+    }))
 }
 
 async fn load_devices(db: &Db) -> Result<Vec<ServerDevice>> {

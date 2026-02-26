@@ -74,6 +74,9 @@
     "alertsEmpty": "لا توجد تنبيهات مستلمة بعد.",
     "receivedAt": "تاريخ الاستلام",
     "typesLabel": "الانواع",
+    "hostTypesTitle": "انواع Host (YAML)",
+    "saveHostTypes": "حفظ انواع Host",
+    "syncHostTypes": "مزامنة انواع Host",
     "internetConfirm": "يبدو ان هذا الرابط يشير الى خادم عبر الانترنت. هل تريد المتابعة؟",
     "internetDeclined": "تم الغاء الاقتران من قبل المستخدم."
   },
@@ -99,6 +102,7 @@
   "types": {
     "standardTab": "قياسية",
     "regionalTab": "اقليمية",
+    "hostTab": "Host",
     "customTab": "مخصصة",
     "readOnly": "للقراءة فقط",
     "standardHelp": "الانواع القياسية مدمجة وللقراءة فقط. استخدم الانواع المخصصة لبياناتك المحلية او الخاصة بالنشاط.",
@@ -127,6 +131,7 @@
     "activeLocale": "اللغة المحلية: {{locale}}",
     "standardTypesTitle": "كتالوج الأنواع القياسية",
     "regionalTypesTitle": "كتالوج الأنواع الاقليمية",
+    "hostTypesTitle": "كتالوج انواع Host",
     "customYamlTitle": "انواع YAML المخصصة",
     "openConfigDir": "افتح مجلد الانواع",
     "empty": "لا توجد انواع في هذا التبويب.",
@@ -148,6 +153,7 @@
     "origin": {
       "base": "كتالوج افتراضي",
       "locale": "تخصيص محلي",
+      "host": "سياسة Host",
       "custom": "مخصص"
     }
   },

@@ -74,6 +74,9 @@
     "alertsEmpty": "No alerts received yet.",
     "receivedAt": "Received at",
     "typesLabel": "Types",
+    "hostTypesTitle": "Host types (YAML)",
+    "saveHostTypes": "Save host types",
+    "syncHostTypes": "Sync host types",
     "internetConfirm": "This server URL looks like an Internet endpoint. Continue pairing?",
     "internetDeclined": "Pairing canceled by user."
   },
@@ -99,6 +102,7 @@
   "types": {
     "standardTab": "Standard",
     "regionalTab": "Regional",
+    "hostTab": "Host",
     "customTab": "Custom",
     "readOnly": "Read-only",
     "standardHelp": "Standard types are built-in and read-only. Use custom types for local or business-specific data.",
@@ -127,6 +131,7 @@
     "activeLocale": "Locale: {{locale}}",
     "standardTypesTitle": "Standard Type Catalog",
     "regionalTypesTitle": "Regional Type Catalog",
+    "hostTypesTitle": "Host Type Catalog",
     "customYamlTitle": "Custom YAML Types",
     "openConfigDir": "Open types directory",
     "empty": "No types found in this tab.",
@@ -148,6 +153,7 @@
     "origin": {
       "base": "Default catalog",
       "locale": "Locale override",
+      "host": "Host policy",
       "custom": "Custom override"
     }
   },
