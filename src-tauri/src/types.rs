@@ -80,6 +80,25 @@ pub struct EntitySetting {
     pub threshold: Option<f64>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentsMode {
+    Agent,
+    Server,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentsState {
+    pub mode: AgentsMode,
+    pub server_listen_addr: Option<String>,
+    pub paired_server_url: Option<String>,
+    pub paired_at: Option<i64>,
+    pub pair_expires_at: Option<i64>,
+    pub pair_expired: bool,
+    pub server_pair_code: Option<String>,
+    pub server_pair_code_expires_at: Option<i64>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RevealedFindings {
     pub by_category: Vec<RevealedCategory>,

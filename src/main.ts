@@ -13,12 +13,16 @@ import legalMarkdown from "./content/legal.md?raw";
 import dependenciesMarkdown from "./content/third-party-notices.md?raw";
 
 import {
+  type AgentsMode,
+  type AgentsState,
   type Report,
   type Settings,
   type TypeDefinition,
   type UiAlert,
   clearAlerts,
+  createServerPairCode,
   deleteFileToTrash,
+  getAgentsState,
   getReport,
   getSettings,
   ignoreFile,
@@ -27,12 +31,15 @@ import {
   listTypeDefinitions,
   neutralizeFile,
   openInFileManager,
+  pairAsAgent,
   reloadTypeCatalog,
   scanNow,
+  setAgentsMode,
   setSettings,
   stopScan,
   unignoreFile,
   unignoreValue,
+  unpairAgent,
   upsertCustomTypeDefinition,
 } from "./api";
 import { getLanguage, initI18n, onLanguageChanged, t } from "./i18n";
@@ -70,7 +77,7 @@ let showIgnored = false;
 let isScanning = false;
 let scanProgress: { processed: number; total: number } | null = null;
 let menuOpen = false;
-let dialog: "about" | "types" | null = null;
+let dialog: "about" | "types" | "agents" | null = null;
 let aboutTab: "about" | "legal" = "about";
 let legalDependenciesVisible = false;
 let typesTab: "standard" | "regional" | "custom" = "standard";
@@ -78,6 +85,12 @@ let typeDefinitions: TypeDefinition[] = [];
 let typeDefinitionsLoading = false;
 let typeDefinitionsLoaded = false;
 let typeDefinitionsError: string | null = null;
+let agentsState: AgentsState | null = null;
+let agentsLoading = false;
+let agentsError: string | null = null;
+let agentServerUrlInput = "";
+let agentPairCodeInput = "";
+let agentPairDaysInput = "14";
 let typeModal: {
   mode: "view" | "create" | "edit";
   draft: TypeDefinition;
@@ -870,6 +883,97 @@ async function refreshTypeDefinitions(): Promise<void> {
   render();
 }
 
+async function refreshAgentsState(): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    agentsState = await getAgentsState();
+  } catch (error) {
+    agentsState = null;
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function onSetAgentsMode(mode: AgentsMode): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    agentsState = await setAgentsMode(mode);
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function onCreateServerCode(): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    agentsState = await createServerPairCode(30);
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function onPairAsAgent(confirmInternet: boolean): Promise<void> {
+  const days = Number.parseInt(agentPairDaysInput, 10);
+  const validDays = Number.isFinite(days) ? Math.min(180, Math.max(1, days)) : 14;
+
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    agentsState = await pairAsAgent(
+      agentServerUrlInput,
+      agentPairCodeInput,
+      confirmInternet,
+      validDays,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("internet_confirmation_required") && !confirmInternet) {
+      const approved = window.confirm(t("agents.internetConfirm"));
+      if (approved) {
+        agentsLoading = false;
+        render();
+        await onPairAsAgent(true);
+        return;
+      }
+      agentsError = t("agents.internetDeclined");
+    } else {
+      agentsError = message;
+    }
+  } finally {
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function onUnpairAgent(): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    agentsState = await unpairAgent();
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    agentsLoading = false;
+    render();
+  }
+}
+
 async function selectFile(fileId: number): Promise<void> {
   debugLog("selectFile:start", { fileId });
   reportPanelVisible = true;
@@ -1063,6 +1167,16 @@ function render(): void {
       render();
     });
     menu.append(customBtn);
+
+    const agentsBtn = el("button", "menu-item", t("menu.agents"));
+    agentsBtn.addEventListener("click", () => {
+      dialog = "agents";
+      menuOpen = false;
+      agentsError = null;
+      void refreshAgentsState();
+      render();
+    });
+    menu.append(agentsBtn);
 
     const clearBtn = el("button", "menu-item", t("menu.clearAll"));
     clearBtn.addEventListener("click", async () => {
@@ -1435,7 +1549,13 @@ function render(): void {
     const overlay = el("div", "overlay");
     const card = el("div", "dialog");
     const head = el("div", "dialog-head");
-    head.append(el("h3", "dialog-title", dialog === "types" ? t("menu.types") : t("menu.about")));
+    const dialogTitle =
+      dialog === "types"
+        ? t("menu.types")
+        : dialog === "agents"
+          ? t("menu.agents")
+          : t("menu.about");
+    head.append(el("h3", "dialog-title", dialogTitle));
     const close = el("button", "btn btn-mini", withIcon("✕", t("common.close")));
     close.addEventListener("click", () => {
       dialog = null;
@@ -1499,6 +1619,122 @@ function render(): void {
           );
         }
         body.append(actions);
+      }
+    } else if (dialog === "agents") {
+      const modeTabs = el("div", "dialog-tabs");
+      const modeAgent = el(
+        "button",
+        `btn btn-mini ${agentsState?.mode !== "server" ? "active-tab" : ""}`,
+        t("agents.modeAgent"),
+      );
+      modeAgent.addEventListener("click", () => void onSetAgentsMode("agent"));
+      modeTabs.append(modeAgent);
+      const modeServer = el(
+        "button",
+        `btn btn-mini ${agentsState?.mode === "server" ? "active-tab" : ""}`,
+        t("agents.modeServer"),
+      );
+      modeServer.addEventListener("click", () => void onSetAgentsMode("server"));
+      modeTabs.append(modeServer);
+      body.append(modeTabs);
+
+      if (agentsLoading) {
+        body.append(el("div", "empty", t("agents.loading")));
+      }
+      if (agentsError) {
+        body.append(el("div", "warn", agentsError));
+      }
+
+      if (agentsState?.mode === "server") {
+        body.append(el("div", "suggestion", t("agents.serverHelp")));
+        body.append(
+          kvRow(t("agents.serverAddress"), agentsState.server_listen_addr ?? t("agents.loading")),
+        );
+        const code = agentsState.server_pair_code;
+        const expires = agentsState.server_pair_code_expires_at;
+        const codeValue = code ?? "-";
+        body.append(kvRow(t("agents.serverCode"), codeValue));
+        body.append(
+          kvRow(
+            t("agents.serverCodeExpires"),
+            expires ? fmtDate(expires) : t("agents.serverCodeMissing"),
+          ),
+        );
+        const actions = el("div", "actions");
+        const genBtn = el(
+          "button",
+          "btn",
+          code ? t("agents.regenerateCode") : t("agents.generateCode"),
+        );
+        genBtn.addEventListener("click", () => void onCreateServerCode());
+        actions.append(genBtn);
+        const copyBtn = el("button", "btn", t("agents.copyCode"));
+        (copyBtn as HTMLButtonElement).disabled = !code;
+        copyBtn.addEventListener("click", async () => {
+          if (!code) return;
+          await navigator.clipboard.writeText(code);
+        });
+        actions.append(copyBtn);
+        body.append(actions);
+      } else {
+        body.append(el("div", "suggestion", t("agents.agentHelp")));
+        const isPaired = Boolean(agentsState?.paired_server_url) && !agentsState?.pair_expired;
+        if (isPaired) {
+          body.append(kvRow(t("agents.pairedServer"), agentsState?.paired_server_url ?? "-"));
+          body.append(
+            kvRow(
+              t("agents.pairExpiresAt"),
+              agentsState?.pair_expires_at ? fmtDate(agentsState.pair_expires_at) : "-",
+            ),
+          );
+          const actions = el("div", "actions");
+          const unpairBtn = el("button", "btn danger", t("agents.unpair"));
+          unpairBtn.addEventListener("click", () => void onUnpairAgent());
+          actions.append(unpairBtn);
+          body.append(actions);
+        } else {
+          if (agentsState?.pair_expired) {
+            body.append(el("div", "warn", t("agents.pairExpired")));
+          }
+
+          body.append(el("label", "custom-label", t("agents.serverUrl")));
+          const serverUrlInput = document.createElement("input");
+          serverUrlInput.className = "custom-input";
+          serverUrlInput.value = agentServerUrlInput;
+          serverUrlInput.placeholder = "https://server.example.com";
+          serverUrlInput.addEventListener("input", () => {
+            agentServerUrlInput = serverUrlInput.value;
+          });
+          body.append(serverUrlInput);
+
+          body.append(el("label", "custom-label", t("agents.pairCode")));
+          const pairCodeInput = document.createElement("input");
+          pairCodeInput.className = "custom-input";
+          pairCodeInput.value = agentPairCodeInput;
+          pairCodeInput.placeholder = "ABCD-1234";
+          pairCodeInput.addEventListener("input", () => {
+            agentPairCodeInput = pairCodeInput.value;
+          });
+          body.append(pairCodeInput);
+
+          body.append(el("label", "custom-label", t("agents.pairDays")));
+          const pairDaysInput = document.createElement("input");
+          pairDaysInput.className = "custom-input";
+          pairDaysInput.type = "number";
+          pairDaysInput.min = "1";
+          pairDaysInput.max = "180";
+          pairDaysInput.value = agentPairDaysInput;
+          pairDaysInput.addEventListener("input", () => {
+            agentPairDaysInput = pairDaysInput.value;
+          });
+          body.append(pairDaysInput);
+
+          const actions = el("div", "actions");
+          const pairBtn = el("button", "btn", t("agents.pairNow"));
+          pairBtn.addEventListener("click", () => void onPairAsAgent(false));
+          actions.append(pairBtn);
+          body.append(actions);
+        }
       }
     } else if (dialog === "types") {
       const tabs = el("div", "dialog-tabs");
@@ -2208,6 +2444,7 @@ async function main(): Promise<void> {
   });
 
   await refreshSettings();
+  await refreshAgentsState();
   await refreshTypeDefinitions();
   await refreshAlerts();
 

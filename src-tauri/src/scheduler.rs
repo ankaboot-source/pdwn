@@ -236,6 +236,13 @@ async fn initial_process_file(
 
     super::watcher::schedule_reminders(&state.db, settings, file_id, now).await?;
 
+    let db_for_upload = state.db.clone();
+    tokio::spawn(async move {
+        if let Err(error) = crate::agents::send_alert_if_agent(db_for_upload, file_id).await {
+            tracing::debug!(file_id, "agent alert upload skipped/failed: {}", error);
+        }
+    });
+
     // Do not emit AlertCreated on initial scan to avoid notification spam.
     Ok(())
 }

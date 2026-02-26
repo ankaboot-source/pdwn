@@ -213,6 +213,19 @@ export type FilenameKeyword = {
   score: number;
 };
 
+export type AgentsMode = "agent" | "server";
+
+export type AgentsState = {
+  mode: AgentsMode;
+  server_listen_addr: string | null;
+  paired_server_url: string | null;
+  paired_at: number | null;
+  pair_expires_at: number | null;
+  pair_expired: boolean;
+  server_pair_code: string | null;
+  server_pair_code_expires_at: number | null;
+};
+
 export async function getEntitySettings(): Promise<EntitySetting[]> {
   return invoke("get_entity_settings");
 }
@@ -245,4 +258,34 @@ export async function reloadTypeCatalog(): Promise<string> {
 
 export async function upsertCustomTypeDefinition(input: TypeDefinition): Promise<string> {
   return invoke("upsert_custom_type_definition", { input });
+}
+
+export async function getAgentsState(): Promise<AgentsState> {
+  return invoke("get_agents_state");
+}
+
+export async function setAgentsMode(mode: AgentsMode): Promise<AgentsState> {
+  return invoke("set_agents_mode", { mode });
+}
+
+export async function createServerPairCode(validMinutes = 30): Promise<AgentsState> {
+  return invoke("create_server_pair_code", { validMinutes });
+}
+
+export async function pairAsAgent(
+  serverUrl: string,
+  code: string,
+  internetConfirmed: boolean,
+  validDays = 14,
+): Promise<AgentsState> {
+  return invoke("pair_as_agent", {
+    serverUrl,
+    code,
+    internetConfirmed,
+    validDays,
+  });
+}
+
+export async function unpairAgent(): Promise<AgentsState> {
+  return invoke("unpair_agent");
 }

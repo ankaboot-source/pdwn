@@ -290,6 +290,13 @@ async fn process_file(
     // Schedule reminders.
     schedule_reminders(&state.db, &settings, file_id, now).await?;
 
+    let db_for_upload = state.db.clone();
+    tokio::spawn(async move {
+        if let Err(error) = crate::agents::send_alert_if_agent(db_for_upload, file_id).await {
+            tracing::debug!(file_id, "agent alert upload skipped/failed: {}", error);
+        }
+    });
+
     // Emit alert event (frontend will show notification).
     let _ = app.emit("pdd:event", AppEvent::AlertCreated { file_id });
     tracing::debug!(file_id, "watcher:alert_emitted");
