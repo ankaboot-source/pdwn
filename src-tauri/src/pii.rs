@@ -1124,21 +1124,7 @@ pub fn score_from_matches(
 
     for (cat, values) in matches {
         let c = values.len() as i64;
-        let mut weight = match cat {
-            PiiCategory::Email => 2,
-            PiiCategory::Phone => 2,
-            PiiCategory::Iban => 7,
-            PiiCategory::CreditCard => 8,
-            PiiCategory::IpAddress => 1,
-            PiiCategory::Address => 4,
-            PiiCategory::PostalCode => 2,
-            PiiCategory::DateOfBirth => 6,
-            PiiCategory::Cookie => 4,
-            PiiCategory::UserId => 3,
-            PiiCategory::Secret => 12,
-            PiiCategory::FileNameSignal => 3,
-            PiiCategory::WeakArchiveEncryption => 8,
-        };
+        let mut weight = builtin_weight(cat);
 
         // If values look like hashes (opaque identifiers), reduce weight.
         if matches!(cat, PiiCategory::Cookie | PiiCategory::UserId) {
@@ -1221,6 +1207,54 @@ pub fn risk_level_from_score(score: i64) -> crate::types::RiskLevel {
         Medium
     } else {
         Low
+    }
+}
+
+pub fn builtin_risk_level(cat: &PiiCategory) -> crate::types::RiskLevel {
+    let weight = builtin_weight(cat);
+    if weight >= 6 {
+        crate::types::RiskLevel::High
+    } else if weight >= 3 {
+        crate::types::RiskLevel::Medium
+    } else {
+        crate::types::RiskLevel::Low
+    }
+}
+
+pub fn risk_level_from_evidence(
+    score: i64,
+    max_level: crate::types::RiskLevel,
+    high_type_count: usize,
+) -> crate::types::RiskLevel {
+    use crate::types::RiskLevel;
+
+    let mut level = risk_level_from_score(score);
+    if level == RiskLevel::Critical && high_type_count < 2 {
+        level = RiskLevel::High;
+    }
+
+    if level > max_level {
+        max_level
+    } else {
+        level
+    }
+}
+
+fn builtin_weight(cat: &PiiCategory) -> i64 {
+    match cat {
+        PiiCategory::Email => 2,
+        PiiCategory::Phone => 2,
+        PiiCategory::Iban => 7,
+        PiiCategory::CreditCard => 8,
+        PiiCategory::IpAddress => 1,
+        PiiCategory::Address => 4,
+        PiiCategory::PostalCode => 2,
+        PiiCategory::DateOfBirth => 6,
+        PiiCategory::Cookie => 4,
+        PiiCategory::UserId => 3,
+        PiiCategory::Secret => 12,
+        PiiCategory::FileNameSignal => 3,
+        PiiCategory::WeakArchiveEncryption => 8,
     }
 }
 

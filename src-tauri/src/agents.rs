@@ -83,6 +83,15 @@ struct AlertIngestResponse {
 struct PolicyResponse {
     version: i64,
     host_types_yaml: String,
+    device_enabled: bool,
+    pair_expires_at: i64,
+}
+
+pub struct PulledHostPolicy {
+    pub version: i64,
+    pub host_types_yaml: String,
+    pub device_enabled: bool,
+    pub pair_expires_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,6 +233,10 @@ pub async fn send_alert_if_agent(db: Arc<Db>, file_id: i64) -> Result<()> {
         .json(&payload)
         .send()
         .await?;
+    if response.status() == StatusCode::FORBIDDEN {
+        db.set_kv("agent_device_enabled", "false").await?;
+        return Err(anyhow!("device disabled by server"));
+    }
     if !response.status().is_success() {
         return Err(anyhow!(
             "alert upload failed with status {}",
@@ -237,7 +250,7 @@ pub async fn fetch_host_types_policy(
     db: &Db,
     server_url: &str,
     token: &str,
-) -> Result<(i64, String), String> {
+) -> Result<PulledHostPolicy, String> {
     let url = format!("{}/api/agents/policy", server_url.trim_end_matches('/'));
     let client = reqwest::Client::new();
     let response = client
@@ -256,10 +269,15 @@ pub async fn fetch_host_types_policy(
         .json::<PolicyResponse>()
         .await
         .map_err(|e| e.to_string())?;
-    db.set_kv("agent_device_enabled", "true")
+    db.set_kv("agent_device_enabled", &payload.device_enabled.to_string())
         .await
         .map_err(|e| e.to_string())?;
-    Ok((payload.version, payload.host_types_yaml))
+    Ok(PulledHostPolicy {
+        version: payload.version,
+        host_types_yaml: payload.host_types_yaml,
+        device_enabled: payload.device_enabled,
+        pair_expires_at: payload.pair_expires_at,
+    })
 }
 
 pub async fn get_server_host_types_yaml(db: &Db) -> Result<String> {
@@ -277,6 +295,22 @@ pub async fn set_server_host_types_yaml(db: &Db, yaml: &str) -> Result<i64> {
     db.set_kv("server_host_types_version", &version.to_string())
         .await?;
     Ok(version)
+}
+
+pub async fn is_agent_device_disabled(db: &Db) -> Result<bool> {
+    let mode = db
+        .get_kv("agents_mode")
+        .await?
+        .unwrap_or_else(|| "agent".to_string());
+    if mode != "agent" {
+        return Ok(false);
+    }
+
+    let enabled = db
+        .get_kv("agent_device_enabled")
+        .await?
+        .unwrap_or_else(|| "true".to_string());
+    Ok(enabled.eq_ignore_ascii_case("false"))
 }
 
 pub async fn list_server_devices(db: &Db) -> Result<Vec<ServerDeviceView>> {
@@ -506,20 +540,23 @@ async fn get_policy(
 
     let now = now_ts();
     let mut devices = load_devices(&state.db).await.map_err(internal_error)?;
-    let device = devices
-        .iter_mut()
-        .find(|d| d.token == token)
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "unknown token".to_string()))?;
-    if !device.enabled {
-        return Err((StatusCode::FORBIDDEN, "device disabled".to_string()));
-    }
-    if device.expires_at <= now {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            "device pairing expired".to_string(),
-        ));
-    }
-    device.last_seen_at = Some(now);
+    let (device_enabled, pair_expires_at) = {
+        let device = devices
+            .iter_mut()
+            .find(|d| d.token == token)
+            .ok_or_else(|| (StatusCode::UNAUTHORIZED, "unknown token".to_string()))?;
+        if !device.enabled {
+            return Err((StatusCode::FORBIDDEN, "device disabled".to_string()));
+        }
+        if device.expires_at <= now {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "device pairing expired".to_string(),
+            ));
+        }
+        device.last_seen_at = Some(now);
+        (device.enabled, device.expires_at)
+    };
     save_devices(&state.db, &devices)
         .await
         .map_err(internal_error)?;
@@ -542,6 +579,8 @@ async fn get_policy(
     Ok(Json(PolicyResponse {
         version,
         host_types_yaml,
+        device_enabled,
+        pair_expires_at,
     }))
 }
 

@@ -58,7 +58,7 @@ types:
   - id: ip_address
     display_name_key: pii.ipAddress
     description_key: types.desc.ip_address
-    category: pii
+    category: security
     risk_level: low
     requires_key: false
     key_labels: []
@@ -72,7 +72,7 @@ types:
   - id: mac_address
     display_name_key: entities.types.mac_address
     description_key: entities.descriptions.mac_address
-    category: pii
+    category: security
     risk_level: low
     requires_key: false
     key_labels: []
@@ -83,6 +83,21 @@ types:
     negative_indicators: null
     threshold: null
     value_regex: '(?i)\b(?:(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}|[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4})\b'
+
+  - id: organization
+    display_name_key: entities.types.organization
+    description_key: entities.descriptions.organization
+    category: pii
+    risk_level: low
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    value_regex: 'a^'
 
   - id: bitcoin
     display_name_key: entities.types.bitcoin
