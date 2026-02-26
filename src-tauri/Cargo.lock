@@ -3273,7 +3273,7 @@ dependencies = [
  "blake3",
  "calamine",
  "dirs 5.0.1",
- "getrandom 0.3.4",
+ "getrandom 0.4.1",
  "libsql",
  "notify",
  "once_cell",
