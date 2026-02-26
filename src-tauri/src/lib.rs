@@ -693,6 +693,48 @@ async fn unpair_agent(state: tauri::State<'_, AppState>) -> Result<AgentsState, 
     Ok(out)
 }
 
+#[tauri::command]
+async fn list_server_devices(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<agents::ServerDeviceView>, String> {
+    agents::list_server_devices(&state.db)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_server_device_enabled(
+    state: tauri::State<'_, AppState>,
+    device_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    agents::set_server_device_enabled(&state.db, &device_id, enabled)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn unpair_server_device(
+    state: tauri::State<'_, AppState>,
+    device_id: String,
+) -> Result<(), String> {
+    agents::unpair_server_device(&state.db, &device_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn list_server_alerts(
+    state: tauri::State<'_, AppState>,
+    limit: Option<i64>,
+) -> Result<Vec<agents::ServerAlertView>, String> {
+    let raw_limit = limit.unwrap_or(50);
+    let safe_limit = raw_limit.clamp(1, 500) as usize;
+    agents::list_server_alerts(&state.db, safe_limit)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 fn validate_custom_detector_input(input: &NewCustomDetector) -> Result<(), String> {
     if input.name.trim().is_empty() {
         return Err("name is required".to_string());
@@ -938,6 +980,10 @@ pub fn run() {
             create_server_pair_code,
             pair_as_agent,
             unpair_agent,
+            list_server_devices,
+            set_server_device_enabled,
+            unpair_server_device,
+            list_server_alerts,
             list_custom_detectors,
             create_custom_detector,
             update_custom_detector,

@@ -19,6 +19,28 @@ pub struct AgentsServerRuntime {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerDeviceView {
+    pub device_id: String,
+    pub device_name: String,
+    pub paired_at: i64,
+    pub expires_at: i64,
+    pub enabled: bool,
+    pub last_seen_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerAlertView {
+    pub device_id: String,
+    pub device_name: String,
+    pub path: String,
+    pub risk_level: String,
+    pub risk_score: i64,
+    pub types: Vec<String>,
+    pub received_at: i64,
+    pub last_seen_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ServerDevice {
     device_id: String,
     device_name: String,
@@ -201,6 +223,63 @@ pub async fn send_alert_if_agent(db: Arc<Db>, file_id: i64) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+pub async fn list_server_devices(db: &Db) -> Result<Vec<ServerDeviceView>> {
+    let mut devices = load_devices(db).await?;
+    devices.sort_by(|a, b| b.paired_at.cmp(&a.paired_at));
+    Ok(devices
+        .into_iter()
+        .map(|d| ServerDeviceView {
+            device_id: d.device_id,
+            device_name: d.device_name,
+            paired_at: d.paired_at,
+            expires_at: d.expires_at,
+            enabled: d.enabled,
+            last_seen_at: d.last_seen_at,
+        })
+        .collect())
+}
+
+pub async fn set_server_device_enabled(db: &Db, device_id: &str, enabled: bool) -> Result<()> {
+    let mut devices = load_devices(db).await?;
+    if let Some(device) = devices.iter_mut().find(|d| d.device_id == device_id) {
+        device.enabled = enabled;
+        save_devices(db, &devices).await?;
+        return Ok(());
+    }
+    Err(anyhow!("device not found"))
+}
+
+pub async fn unpair_server_device(db: &Db, device_id: &str) -> Result<()> {
+    let mut devices = load_devices(db).await?;
+    let before = devices.len();
+    devices.retain(|d| d.device_id != device_id);
+    if devices.len() == before {
+        return Err(anyhow!("device not found"));
+    }
+    save_devices(db, &devices).await?;
+    Ok(())
+}
+
+pub async fn list_server_alerts(db: &Db, limit: usize) -> Result<Vec<ServerAlertView>> {
+    let mut alerts = load_server_alerts(db).await?;
+    alerts.sort_by(|a, b| b.received_at.cmp(&a.received_at));
+    let rows = alerts
+        .into_iter()
+        .take(limit)
+        .map(|row| ServerAlertView {
+            device_id: row.device_id,
+            device_name: row.device_name,
+            path: row.payload.path,
+            risk_level: row.payload.risk_level,
+            risk_score: row.payload.risk_score,
+            types: row.payload.types,
+            received_at: row.received_at,
+            last_seen_at: row.payload.last_seen_at,
+        })
+        .collect();
+    Ok(rows)
 }
 
 fn map_report_to_payload(report: &Report) -> AgentAlertPayload {

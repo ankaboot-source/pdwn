@@ -226,6 +226,26 @@ export type AgentsState = {
   server_pair_code_expires_at: number | null;
 };
 
+export type ServerDevice = {
+  device_id: string;
+  device_name: string;
+  paired_at: number;
+  expires_at: number;
+  enabled: boolean;
+  last_seen_at: number | null;
+};
+
+export type ServerAlert = {
+  device_id: string;
+  device_name: string;
+  path: string;
+  risk_level: string;
+  risk_score: number;
+  types: string[];
+  received_at: number;
+  last_seen_at: number;
+};
+
 export async function getEntitySettings(): Promise<EntitySetting[]> {
   return invoke("get_entity_settings");
 }
@@ -288,4 +308,20 @@ export async function pairAsAgent(
 
 export async function unpairAgent(): Promise<AgentsState> {
   return invoke("unpair_agent");
+}
+
+export async function listServerDevices(): Promise<ServerDevice[]> {
+  return invoke("list_server_devices");
+}
+
+export async function setServerDeviceEnabled(deviceId: string, enabled: boolean): Promise<void> {
+  await invoke("set_server_device_enabled", { deviceId, enabled });
+}
+
+export async function unpairServerDevice(deviceId: string): Promise<void> {
+  await invoke("unpair_server_device", { deviceId });
+}
+
+export async function listServerAlerts(limit = 50): Promise<ServerAlert[]> {
+  return invoke("list_server_alerts", { limit });
 }

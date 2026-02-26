@@ -16,6 +16,8 @@ import {
   type AgentsMode,
   type AgentsState,
   type Report,
+  type ServerAlert,
+  type ServerDevice,
   type Settings,
   type TypeDefinition,
   type UiAlert,
@@ -28,6 +30,8 @@ import {
   ignoreFile,
   ignoreValue,
   listAlerts,
+  listServerAlerts,
+  listServerDevices,
   listTypeDefinitions,
   neutralizeFile,
   openInFileManager,
@@ -35,11 +39,13 @@ import {
   reloadTypeCatalog,
   scanNow,
   setAgentsMode,
+  setServerDeviceEnabled,
   setSettings,
   stopScan,
   unignoreFile,
   unignoreValue,
   unpairAgent,
+  unpairServerDevice,
   upsertCustomTypeDefinition,
 } from "./api";
 import { getLanguage, initI18n, onLanguageChanged, t } from "./i18n";
@@ -88,6 +94,8 @@ let typeDefinitionsError: string | null = null;
 let agentsState: AgentsState | null = null;
 let agentsLoading = false;
 let agentsError: string | null = null;
+let serverDevices: ServerDevice[] = [];
+let serverAlerts: ServerAlert[] = [];
 let agentServerUrlInput = "";
 let agentPairCodeInput = "";
 let agentPairDaysInput = "14";
@@ -889,12 +897,29 @@ async function refreshAgentsState(): Promise<void> {
   render();
   try {
     agentsState = await getAgentsState();
+    await refreshServerPanelData();
   } catch (error) {
     agentsState = null;
     agentsError = error instanceof Error ? error.message : String(error);
   } finally {
     agentsLoading = false;
     render();
+  }
+}
+
+async function refreshServerPanelData(): Promise<void> {
+  if (agentsState?.mode !== "server") {
+    serverDevices = [];
+    serverAlerts = [];
+    return;
+  }
+
+  try {
+    const [devices, alerts] = await Promise.all([listServerDevices(), listServerAlerts(50)]);
+    serverDevices = devices;
+    serverAlerts = alerts;
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
   }
 }
 
@@ -907,6 +932,7 @@ async function onSetAgentsMode(mode: AgentsMode): Promise<void> {
   } catch (error) {
     agentsError = error instanceof Error ? error.message : String(error);
   } finally {
+    await refreshServerPanelData();
     agentsLoading = false;
     render();
   }
@@ -921,6 +947,7 @@ async function onCreateServerCode(): Promise<void> {
   } catch (error) {
     agentsError = error instanceof Error ? error.message : String(error);
   } finally {
+    await refreshServerPanelData();
     agentsLoading = false;
     render();
   }
@@ -955,6 +982,7 @@ async function onPairAsAgent(confirmInternet: boolean): Promise<void> {
       agentsError = message;
     }
   } finally {
+    await refreshServerPanelData();
     agentsLoading = false;
     render();
   }
@@ -966,6 +994,37 @@ async function onUnpairAgent(): Promise<void> {
   render();
   try {
     agentsState = await unpairAgent();
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    await refreshServerPanelData();
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function onToggleServerDevice(deviceId: string, enabled: boolean): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    await setServerDeviceEnabled(deviceId, enabled);
+    await refreshServerPanelData();
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function onUnpairServerDevice(deviceId: string): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    await unpairServerDevice(deviceId);
+    await refreshServerPanelData();
   } catch (error) {
     agentsError = error instanceof Error ? error.message : String(error);
   } finally {
@@ -1676,6 +1735,72 @@ function render(): void {
         });
         actions.append(copyBtn);
         body.append(actions);
+
+        body.append(el("h4", "entity-section-title", t("agents.devicesTitle")));
+        if (serverDevices.length === 0) {
+          body.append(el("div", "empty", t("agents.devicesEmpty")));
+        } else {
+          const devicesList = el("div", "type-list");
+          for (const device of serverDevices) {
+            const card = el("div", "report-meta");
+            const leftCol = el("div", "report-meta-left");
+            leftCol.append(kvRow(t("agents.deviceName"), device.device_name));
+            leftCol.append(kvRow(t("agents.deviceId"), device.device_id));
+            leftCol.append(kvRow(t("agents.devicePairedAt"), fmtDate(device.paired_at)));
+            leftCol.append(kvRow(t("agents.deviceExpiresAt"), fmtDate(device.expires_at)));
+            const rightCol = el("div", "report-meta-right");
+            rightCol.append(
+              kvRow(
+                t("agents.deviceLastSeen"),
+                device.last_seen_at ? fmtDate(device.last_seen_at) : t("agents.deviceNever"),
+              ),
+            );
+            rightCol.append(
+              kvRow(
+                t("agents.deviceStatus"),
+                device.enabled ? t("agents.deviceEnabled") : t("agents.deviceDisabled"),
+              ),
+            );
+            const rowActions = el("div", "actions");
+            const toggleBtn = el(
+              "button",
+              "btn btn-mini",
+              device.enabled ? t("agents.disableDevice") : t("agents.enableDevice"),
+            );
+            toggleBtn.addEventListener(
+              "click",
+              () => void onToggleServerDevice(device.device_id, !device.enabled),
+            );
+            rowActions.append(toggleBtn);
+            const unpairBtn = el("button", "btn btn-mini danger", t("agents.unpairDevice"));
+            unpairBtn.addEventListener("click", () => void onUnpairServerDevice(device.device_id));
+            rowActions.append(unpairBtn);
+            rightCol.append(rowActions);
+            card.append(leftCol, rightCol);
+            devicesList.append(card);
+          }
+          body.append(devicesList);
+        }
+
+        body.append(el("h4", "entity-section-title", t("agents.alertsTitle")));
+        if (serverAlerts.length === 0) {
+          body.append(el("div", "empty", t("agents.alertsEmpty")));
+        } else {
+          const alertsList = el("div", "type-list");
+          for (const alert of serverAlerts) {
+            const row = el("div", "report-meta");
+            const leftCol = el("div", "report-meta-left");
+            leftCol.append(kvRow(t("agents.deviceName"), alert.device_name));
+            leftCol.append(kvRow(t("report.path"), alert.path));
+            const rightCol = el("div", "report-meta-right");
+            rightCol.append(kvRow(t("alerts.risk"), `${alert.risk_level} (${alert.risk_score})`));
+            rightCol.append(kvRow(t("agents.receivedAt"), fmtDate(alert.received_at)));
+            rightCol.append(kvRow(t("agents.typesLabel"), alert.types.join(", ") || "-"));
+            row.append(leftCol, rightCol);
+            alertsList.append(row);
+          }
+          body.append(alertsList);
+        }
       } else {
         body.append(el("div", "suggestion", t("agents.agentHelp")));
         const isPaired = Boolean(agentsState?.paired_server_url) && !agentsState?.pair_expired;
