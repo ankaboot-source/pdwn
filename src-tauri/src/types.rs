@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::collections::BTreeMap;
 
 pub type FileId = i64;
 
@@ -126,6 +127,18 @@ pub struct ScanSummary {
     pub custom_findings: Vec<CustomFinding>,
     pub weak_zip_encryption: bool,
     pub revealed: Option<RevealedFindings>,
+    pub reveal_cache: RevealCache,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RevealCache {
+    pub by_category: BTreeMap<String, Vec<RevealPair>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RevealPair {
+    pub redacted: String,
+    pub clear: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

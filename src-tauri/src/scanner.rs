@@ -148,6 +148,7 @@ fn scan_path_blocking_with_ignore(
             custom_findings: vec![],
             weak_zip_encryption: false,
             revealed: None,
+            reveal_cache: crate::types::RevealCache::default(),
         });
     }
 
@@ -177,6 +178,7 @@ fn scan_path_blocking_with_ignore(
             custom_findings,
             weak_zip_encryption: false,
             revealed: None,
+            reveal_cache: build_reveal_cache(&matches, &custom_matches),
         });
     }
 
@@ -293,6 +295,7 @@ fn scan_path_blocking_with_ignore(
     } else {
         None
     };
+    let reveal_cache = build_reveal_cache(&matches, &custom_matches);
 
     Ok(ScanSummary {
         risk_level,
@@ -302,7 +305,41 @@ fn scan_path_blocking_with_ignore(
         custom_findings,
         weak_zip_encryption,
         revealed,
+        reveal_cache,
     })
+}
+
+fn build_reveal_cache(
+    matches: &BTreeMap<PiiCategory, Vec<String>>,
+    custom_matches: &BTreeMap<String, Vec<String>>,
+) -> crate::types::RevealCache {
+    let mut out = crate::types::RevealCache::default();
+
+    for (cat, values) in matches {
+        let cat_key = serde_json::to_string(cat)
+            .unwrap_or_else(|_| "unknown".to_string())
+            .trim_matches('"')
+            .to_string();
+        let pairs = out.by_category.entry(cat_key).or_default();
+        for value in values {
+            pairs.push(crate::types::RevealPair {
+                redacted: pii::redact_value(cat.clone(), value),
+                clear: value.clone(),
+            });
+        }
+    }
+
+    for (cat, values) in custom_matches {
+        let pairs = out.by_category.entry(cat.clone()).or_default();
+        for value in values {
+            pairs.push(crate::types::RevealPair {
+                redacted: pii::redact_value(crate::types::PiiCategory::UserId, value),
+                clear: value.clone(),
+            });
+        }
+    }
+
+    out
 }
 
 fn merge_matches(
