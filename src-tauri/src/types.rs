@@ -92,6 +92,7 @@ pub struct AgentsState {
     pub mode: AgentsMode,
     pub server_listen_addr: Option<String>,
     pub paired_server_url: Option<String>,
+    pub agent_enabled: bool,
     pub paired_at: Option<i64>,
     pub pair_expires_at: Option<i64>,
     pub pair_expired: bool,

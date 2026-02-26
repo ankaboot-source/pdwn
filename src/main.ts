@@ -1866,6 +1866,9 @@ function render(): void {
         const isPaired = Boolean(agentsState?.paired_server_url) && !agentsState?.pair_expired;
         if (isPaired) {
           body.append(kvRow(t("agents.pairedServer"), agentsState?.paired_server_url ?? "-"));
+          if (!agentsState?.agent_enabled) {
+            body.append(el("div", "warn", t("agents.agentDisabled")));
+          }
           body.append(
             kvRow(
               t("agents.pairExpiresAt"),

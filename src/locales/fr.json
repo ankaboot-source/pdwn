@@ -55,6 +55,7 @@
     "pairedServer": "Serveur appairé",
     "pairExpiresAt": "Appairage expire le",
     "pairExpired": "L'appairage a expiré. Merci de le refaire.",
+    "agentDisabled": "Cet agent est désactivé par le serveur.",
     "unpair": "Désappairer",
     "devicesTitle": "Appareils",
     "devicesEmpty": "Aucun appareil appairé.",

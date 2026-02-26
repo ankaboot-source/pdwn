@@ -200,6 +200,10 @@ async fn process_file(
         return Ok(());
     }
 
+    if crate::agents::is_agent_device_disabled(&state.db).await? {
+        return Ok(());
+    }
+
     let meta = std::fs::metadata(path)?;
     if !meta.is_file() {
         return Ok(());

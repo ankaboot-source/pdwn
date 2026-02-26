@@ -70,6 +70,11 @@ pub async fn run_initial_scan(
     state: AppState,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
+    if crate::agents::is_agent_device_disabled(&state.db).await? {
+        tracing::debug!("scheduler:initial_scan_skipped_device_disabled");
+        return Ok(());
+    }
+
     let ignored_snapshot = state
         .db
         .get_ignored_values_snapshot()

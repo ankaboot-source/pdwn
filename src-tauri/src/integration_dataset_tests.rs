@@ -60,7 +60,7 @@ fn load_dataset() -> Vec<DatasetCase> {
 }
 
 fn yaml_custom_detectors_for_tests() -> Vec<CustomDetector> {
-    let registry = type_catalog::TypeRegistry::load("fr", None)
+    let registry = type_catalog::TypeRegistry::load("fr", None, None)
         .unwrap_or_else(|e| panic!("Failed to load type catalog for tests: {}", e));
 
     registry

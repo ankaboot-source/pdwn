@@ -128,6 +128,12 @@ async fn load_agents_state(db: &Db) -> Result<AgentsState, String> {
         .get_kv("agent_server_url")
         .await
         .map_err(|e| e.to_string())?;
+    let agent_enabled = db
+        .get_kv("agent_device_enabled")
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|v| !v.eq_ignore_ascii_case("false"))
+        .unwrap_or(true);
     let server_listen_addr = db
         .get_kv("server_listen_addr")
         .await
@@ -156,6 +162,9 @@ async fn load_agents_state(db: &Db) -> Result<AgentsState, String> {
             .await
             .map_err(|e| e.to_string())?;
         db.delete_kv("agent_device_id")
+            .await
+            .map_err(|e| e.to_string())?;
+        db.delete_kv("agent_device_enabled")
             .await
             .map_err(|e| e.to_string())?;
     }
@@ -188,6 +197,7 @@ async fn load_agents_state(db: &Db) -> Result<AgentsState, String> {
         } else {
             paired_server_url
         },
+        agent_enabled,
         paired_at: if pair_expired { None } else { paired_at },
         pair_expires_at: if pair_expired { None } else { pair_expires_at },
         pair_expired,
@@ -509,6 +519,12 @@ async fn set_settings(
 #[tauri::command]
 async fn scan_now(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<(), String> {
     tracing::debug!("command:scan_now");
+    if agents::is_agent_device_disabled(&state.db)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        return Err("agent is disabled by server".to_string());
+    }
     if state.scan_running.swap(true, Ordering::SeqCst) {
         return Err("scan already running".to_string());
     }
@@ -652,6 +668,9 @@ async fn pair_as_agent(
     db.set_kv("agent_pair_expires_at", &expires_at.to_string())
         .await
         .map_err(|e| e.to_string())?;
+    db.set_kv("agent_device_enabled", "true")
+        .await
+        .map_err(|e| e.to_string())?;
 
     db.delete_kv("server_pair_code")
         .await
@@ -683,6 +702,9 @@ async fn unpair_agent(state: tauri::State<'_, AppState>) -> Result<AgentsState, 
         .await
         .map_err(|e| e.to_string())?;
     db.delete_kv("agent_device_id")
+        .await
+        .map_err(|e| e.to_string())?;
+    db.delete_kv("agent_device_enabled")
         .await
         .map_err(|e| e.to_string())?;
 
@@ -1136,7 +1158,21 @@ async fn sync_host_types_from_server(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "agent token is missing".to_string())?;
 
-    let (version, yaml) = agents::fetch_host_types_policy(&state.db, &server_url, &token).await?;
+    let policy = agents::fetch_host_types_policy(&state.db, &server_url, &token).await?;
+    state
+        .db
+        .set_kv("agent_pair_expires_at", &policy.pair_expires_at.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
+    state
+        .db
+        .set_kv("agent_device_enabled", &policy.device_enabled.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
+    if !policy.device_enabled {
+        return Err("agent is disabled by server".to_string());
+    }
+
     let current_version = parse_i64_opt(
         state
             .db
@@ -1145,7 +1181,7 @@ async fn sync_host_types_from_server(
             .map_err(|e| e.to_string())?,
     )
     .unwrap_or_default();
-    if version <= current_version {
+    if policy.version <= current_version {
         return Ok("Host types already up to date".to_string());
     }
 
@@ -1154,12 +1190,12 @@ async fn sync_host_types_from_server(
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create {}: {}", parent.display(), e))?;
     }
-    std::fs::write(&host_types_file, yaml)
+    std::fs::write(&host_types_file, policy.host_types_yaml)
         .map_err(|e| format!("Failed to write {}: {}", host_types_file.display(), e))?;
 
     state
         .db
-        .set_kv("agent_host_types_version", &version.to_string())
+        .set_kv("agent_host_types_version", &policy.version.to_string())
         .await
         .map_err(|e| e.to_string())?;
 

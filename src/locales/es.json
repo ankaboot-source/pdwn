@@ -55,6 +55,7 @@
     "pairedServer": "Servidor emparejado",
     "pairExpiresAt": "Emparejamiento expira el",
     "pairExpired": "El emparejamiento expiro. Vuelve a emparejar.",
+    "agentDisabled": "Este agente esta desactivado por el servidor.",
     "unpair": "Desemparejar",
     "devicesTitle": "Dispositivos",
     "devicesEmpty": "Todavia no hay dispositivos emparejados.",

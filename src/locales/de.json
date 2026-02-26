@@ -55,6 +55,7 @@
     "pairedServer": "Gepairter Server",
     "pairExpiresAt": "Pairing lauft ab am",
     "pairExpired": "Pairing ist abgelaufen. Bitte erneut pairen.",
+    "agentDisabled": "Dieser Agent wurde vom Server deaktiviert.",
     "unpair": "Entkoppeln",
     "devicesTitle": "Gerate",
     "devicesEmpty": "Noch keine gepairten Gerate.",

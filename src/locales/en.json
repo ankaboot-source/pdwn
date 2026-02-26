@@ -55,6 +55,7 @@
     "pairedServer": "Paired server",
     "pairExpiresAt": "Pairing expires at",
     "pairExpired": "Pairing expired. Please pair again.",
+    "agentDisabled": "This agent is disabled by the server.",
     "unpair": "Unpair",
     "devicesTitle": "Devices",
     "devicesEmpty": "No paired devices yet.",

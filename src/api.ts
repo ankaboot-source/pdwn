@@ -219,6 +219,7 @@ export type AgentsState = {
   mode: AgentsMode;
   server_listen_addr: string | null;
   paired_server_url: string | null;
+  agent_enabled: boolean;
   paired_at: number | null;
   pair_expires_at: number | null;
   pair_expired: boolean;
