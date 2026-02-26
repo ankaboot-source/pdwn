@@ -175,12 +175,14 @@
     "deleted": "Eliminado",
     "risk": "Riesgo",
     "device": "Dispositivo",
+    "local": "Local",
     "age": "Edad"
   },
   "filters": {
     "all": "Todos",
     "selectedCount": "{{count}} seleccionados",
     "risk": "Riesgo",
+    "device": "Dispositivo",
     "type": "Tipo",
     "sort": "Orden",
     "showIgnored": "Mostrar ignorados",

@@ -175,12 +175,14 @@
     "deleted": "تم الحذف",
     "risk": "الخطورة",
     "device": "الجهاز",
+    "local": "محلي",
     "age": "العمر"
   },
   "filters": {
     "all": "الكل",
     "selectedCount": "{{count}} محدد",
     "risk": "الخطورة",
+    "device": "الجهاز",
     "type": "النوع",
     "sort": "الفرز",
     "showIgnored": "اظهار المتجاهلة",

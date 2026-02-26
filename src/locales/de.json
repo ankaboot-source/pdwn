@@ -175,12 +175,14 @@
     "deleted": "Geloscht",
     "risk": "Risiko",
     "device": "Gerat",
+    "local": "Lokal",
     "age": "Alter"
   },
   "filters": {
     "all": "Alle",
     "selectedCount": "{{count}} ausgewählt",
     "risk": "Risiko",
+    "device": "Gerat",
     "type": "Typ",
     "sort": "Sortierung",
     "showIgnored": "Ignorierte anzeigen",

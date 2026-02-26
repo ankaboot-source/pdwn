@@ -82,6 +82,7 @@ let onDemandScanLoading = false;
 let reportDropActive = false;
 const selectedRiskFilters = new Set<UiAlert["risk_level"]>();
 const selectedTypeFilters = new Set<string>();
+let selectedDeviceFilter = "all";
 let riskFilterOpen = false;
 let typeFilterOpen = false;
 let sortBy: SortMode = "risk_desc";
@@ -889,6 +890,10 @@ function alertTime(item: AlertListItem): number {
   return item.kind === "local" ? item.local.last_seen_at : item.remote.received_at;
 }
 
+function alertDeviceLabel(item: AlertListItem): string {
+  return item.kind === "local" ? t("alerts.local") : item.remote.device_name;
+}
+
 function visibleAlerts(): AlertListItem[] {
   let items: AlertListItem[] = alerts
     .filter((a) => (showIgnored ? true : !a.ignored))
@@ -904,6 +909,14 @@ function visibleAlerts(): AlertListItem[] {
     items = items.filter((a) =>
       Array.from(selectedTypeFilters).some((selectedType) => alertHasType(a, selectedType)),
     );
+  }
+  if (isServerMode() && selectedDeviceFilter !== "all") {
+    items = items.filter((a) => {
+      if (selectedDeviceFilter === "local") {
+        return a.kind === "local";
+      }
+      return a.kind === "server" && a.remote.device_id === selectedDeviceFilter;
+    });
   }
 
   items = [...items].sort((a, b) => {
@@ -1688,6 +1701,45 @@ function render(): void {
   ignoredWrap.append(el("span", "filter-label", t("filters.showIgnored")));
   filters.append(ignoredWrap);
 
+  if (isServerMode()) {
+    const deviceWrap = el("label", "filter");
+    deviceWrap.append(el("span", "filter-label", t("filters.device")));
+    const deviceSelect = document.createElement("select");
+    const allOpt = document.createElement("option");
+    allOpt.value = "all";
+    allOpt.textContent = t("filters.all");
+    allOpt.selected = selectedDeviceFilter === "all";
+    deviceSelect.append(allOpt);
+
+    const localOpt = document.createElement("option");
+    localOpt.value = "local";
+    localOpt.textContent = t("alerts.local");
+    localOpt.selected = selectedDeviceFilter === "local";
+    deviceSelect.append(localOpt);
+
+    const devices = new Map<string, string>();
+    for (const a of serverAlerts) {
+      devices.set(a.device_id, a.device_name);
+    }
+    const sorted = Array.from(devices.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+    for (const [id, name] of sorted) {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = name;
+      opt.selected = selectedDeviceFilter === id;
+      deviceSelect.append(opt);
+    }
+
+    deviceSelect.addEventListener("change", () => {
+      selectedDeviceFilter = deviceSelect.value;
+      render();
+    });
+    deviceWrap.append(deviceSelect);
+    filters.append(deviceWrap);
+  } else {
+    selectedDeviceFilter = "all";
+  }
+
   left.append(filters);
 
   const list = el("div", "alert-list");
@@ -1730,9 +1782,7 @@ function render(): void {
       }
       meta.append(el("div", "alert-age", fmtAge(alertTime(itemData))));
       if (!isLocal && isServerMode()) {
-        meta.append(
-          el("div", "alert-age", `${t("alerts.device")}: ${itemData.remote.device_name}`),
-        );
+        meta.append(el("div", "alert-age", `${t("alerts.device")}: ${alertDeviceLabel(itemData)}`));
       }
       item.append(meta);
 

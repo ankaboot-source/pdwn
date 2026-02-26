@@ -175,12 +175,14 @@
     "deleted": "Supprimé",
     "risk": "Criticité",
     "device": "Appareil",
+    "local": "Local",
     "age": "Âge"
   },
   "filters": {
     "all": "Tous",
     "selectedCount": "{{count}} sélectionnés",
     "risk": "Criticité",
+    "device": "Appareil",
     "type": "Type",
     "sort": "Tri",
     "showIgnored": "Afficher les alertes ignorées",

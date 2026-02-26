@@ -175,12 +175,14 @@
     "deleted": "Deleted",
     "risk": "Risk",
     "device": "Device",
+    "local": "Local",
     "age": "Age"
   },
   "filters": {
     "all": "All",
     "selectedCount": "{{count}} selected",
     "risk": "Risk",
+    "device": "Device",
     "type": "Type",
     "sort": "Sort",
     "showIgnored": "Show ignored",
