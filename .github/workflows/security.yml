@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Secret scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -24,7 +24,7 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - name: Rust dependency audit
-        run: cargo audit --manifest-path src-tauri/Cargo.toml
+        run: cargo audit -f src-tauri/Cargo.lock
 
   js-audit:
     runs-on: ubuntu-latest
