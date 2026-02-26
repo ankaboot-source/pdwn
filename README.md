@@ -1,20 +1,21 @@
-<h1 align="center">PDWN</h1>
+<p align="center">
+  <img src="assets/pdwn-wordmark.png" alt="PDWN wordmark" width="420" />
+</p>
 
 <p align="center">
-  Personal Data Watch & Neutralize<br/>
+  <strong>PDWN</strong> means <strong>Personal Data Watch & Neutralize</strong>.<br/>
   A local-first desktop app to detect personal data and technical secrets before they become incidents.
 </p>
 
 <p align="center">
   <img alt="CI" src="https://img.shields.io/badge/CI-GitHub_Actions-2088FF?logo=githubactions&logoColor=white" />
   <img alt="Security" src="https://img.shields.io/badge/Security-Gitleaks%20%2B%20Audit-2EA043?logo=dependabot&logoColor=white" />
-  <img alt="Coverage" src="https://img.shields.io/badge/Coverage-Rust%20Gate-0A7F5A" />
   <img alt="Tauri" src="https://img.shields.io/badge/Desktop-Tauri%202-24C8DB?logo=tauri&logoColor=white" />
   <img alt="License" src="https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg" />
 </p>
 
 <p align="center">
-  <img src="assets/pdwn-wordmark.png" alt="PDWN wordmark" width="420" />
+  <img src="assets/pdwn-screenshot-clean.png" alt="PDWN clean demo screenshot with synthetic data" width="900" />
 </p>
 
 ## Why PDWN
@@ -84,16 +85,17 @@ CI validates:
 - Type checking, linting, and formatting
 - Rust fmt, clippy, and test suite
 - Security scans and dependency auditing
-- Coverage gate on Rust checks
 
 ## Contributing
 
 If you want to contribute, start here:
 
-- `CONTRIBUTING.md`
-- `SECURITY.md`
-- `CODE_OF_CONDUCT.md`
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [SECURITY.md](SECURITY.md)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
 ## License
 
 PDWN is licensed under `AGPL-3.0-only`.
+
+- Full license text: [LICENSE](LICENSE)
