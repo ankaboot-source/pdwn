@@ -1,6 +1,33 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 
+const SECRET_KEY_LABELS: &[&str] = &[
+    "api_key",
+    "x-api-key",
+    "client_secret",
+    "private_key",
+    "secret_key",
+    "access_token",
+    "bearer_token",
+    "auth_token",
+    "password",
+    "jwt",
+    "aws_access_key_id",
+    "aws_secret_access_key",
+    "azure_client_secret",
+    "gcp_api_key",
+    "github_token",
+    "github_pat",
+    "gitlab_token",
+    "bitbucket_token",
+    "stripe_secret",
+    "paypal_key",
+    "database_url",
+    "db_password",
+    "env",
+    // add more as needed
+];
+
 static SECRET_PATTERNS: Lazy<Vec<SecretPattern>> = Lazy::new(|| {
     vec![
         // AWS Access Key ID
@@ -273,7 +300,7 @@ fn detect_high_entropy_secrets(text: &str) -> Option<Vec<String>> {
 
     // Also check for key=value patterns without quotes
     let kv_re = Regex::new(
-        r"(?i)(?:secret|key|token|password|auth)[\s]*[=:][\s]*([A-Za-z0-9_~./+-]{10,200})",
+        r"(?i)(?:secret|key|token|password|auth|client_secret|api_key|access_token|private_key|auth_token|bearer_token|aws_secret_access_key|azure_client_secret)[\s]*[=:][\s]*([A-Za-z0-9_~./+-]{10,200})",
     )
     .ok()?;
 
@@ -391,11 +418,9 @@ fn looks_like_secret_value(value: &str) -> bool {
 
 fn has_api_context(s: &str) -> bool {
     let lower = s.to_lowercase();
-    // Check for common API-related keywords indicating real API keys
-    lower.contains("api") || lower.contains("key") || lower.contains("token") ||
-    lower.contains("auth") || lower.contains("secret") ||
-    lower.contains("bearer") || lower.contains("authorization") ||
-    // Check for file extensions that commonly contain real API keys
+    let has_label = SECRET_KEY_LABELS.iter().any(|&label| lower.contains(label));
+    has_label &&
+    // Exclude file types with technical content that might look like secrets
     !lower.contains(".ics") && !lower.contains(".ical") &&
     !lower.contains(".excalidraw") && !lower.contains(".txt") &&
     !lower.contains(".calendar")

@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    personal_data_detector_desktop_lib::run()
+    pdwn_lib::run()
 }

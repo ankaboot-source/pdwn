@@ -1,7 +1,7 @@
 {
   "app": {
-    "name": "Personal Data Detector",
-    "tagline": "Watches your downloads, detects personal data and secrets, then helps you act fast."
+    "name": "PDWN",
+    "tagline": "Personal Data Watch & Neutralize. Detect exposure fast and act before data leaks spread."
   },
   "common": {
     "refresh": "Refresh",
@@ -31,9 +31,11 @@
     "about": "About",
     "legal": "Legal",
     "customTypes": "Custom types",
-    "types": "Types"
+    "types": "Types",
+    "clearAll": "Clear All Data"
   },
   "custom": {
+    "customRulesTitle": "Custom Rule Detectors",
     "add": "Add type",
     "edit": "Edit",
     "delete": "Delete",
@@ -53,7 +55,9 @@
   },
   "types": {
     "standardTab": "Standard",
+    "regionalTab": "Regional",
     "customTab": "Custom",
+    "readOnly": "Read-only",
     "standardHelp": "Standard types are built-in and read-only. Use custom types for local or business-specific data.",
     "desc": {
       "email": "Email addresses.",
@@ -66,19 +70,53 @@
       "date_of_birth": "Dates linked to birth-related fields.",
       "cookie": "Cookie or session identifiers.",
       "user_id": "User or device identifiers.",
-      "loyalty_id": "Loyalty account identifiers.",
-      "digital_account": "Digital account identifiers.",
-      "rcu_id": "RCU identifiers.",
+      "loyalty_id": "Loyalty or rewards account identifiers.",
+      "digital_account": "Digital service account identifiers.",
+      "rcu_id": "RCU account identifiers.",
       "secret": "Secrets like API keys, tokens, and passwords.",
       "weak_archive_encryption": "ZIP archives using weak ZipCrypto encryption.",
       "file_name_signal": "Sensitive keywords found in file names."
+    },
+    "reloadBtn": "Reload Types",
+    "reloadSuccess": "Types reloaded successfully",
+    "reloadError": "Failed to reload types: {{error}}",
+    "loading": "Loading type catalog…",
+    "activeLocale": "Locale: {{locale}}",
+    "standardTypesTitle": "Standard Type Catalog",
+    "regionalTypesTitle": "Regional Type Catalog",
+    "customYamlTitle": "Custom YAML Types",
+    "openConfigDir": "Open types directory",
+    "empty": "No types found in this tab.",
+    "emptyCustomYaml": "No custom YAML type yet for this locale.",
+    "categoryLabel": "Category",
+    "riskLabel": "Risk",
+    "originLabel": "Origin",
+    "localeRequirement": "Locale",
+    "requiresKey": "Requires key label",
+    "optionalKey": "Key label optional",
+    "keyLabels": "Key labels",
+    "advanced": "Advanced",
+    "none": "None",
+    "blockedExtensions": "Ignored extensions",
+    "filenameKeywords": "Filename keywords",
+    "contextPositiveIndicators": "Positive indicators",
+    "contextNegativeIndicators": "Negative indicators",
+    "contextThreshold": "Context threshold",
+    "origin": {
+      "base": "Default catalog",
+      "locale": "Locale override",
+      "custom": "Custom override"
     }
   },
   "about": {
-    "description": "This local application watches selected folders, detects personal data and technical secrets, then suggests safe retention or deletion actions.",
+    "description": "PDWN (Personal Data Watch & Neutralize) watches selected folders, detects personal data and technical secrets, then suggests safe retention or deletion actions.",
     "authorLabel": "Author:",
     "author": "badreddine",
-    "legalText": "Licensed under AGPL-3.0-only. Scanning is local. Revealed values are not persisted. This tool helps detection and does not replace a formal compliance audit."
+    "legalText": "Licensed under AGPL-3.0-only. Scanning is local. Revealed values are not persisted. This tool helps detection and does not replace a formal compliance audit.",
+    "openAgplLink": "Open AGPLv3 License",
+    "showDependencies": "Show Dependencies",
+    "hideDependencies": "Hide Dependencies",
+    "dependenciesTitle": "Third-Party Dependencies"
   },
   "alerts": {
     "title": "Alerts",
@@ -127,11 +165,10 @@
     "delete": "Move to trash",
     "ignore": "Ignore",
     "unignore": "Stop ignoring",
+    "neutralize": "Neutralize",
     "reveal": "Show all personal data",
     "hide": "Hide personal data",
     "revealOne": "Reveal value",
-    "markMine": "This is mine",
-    "unmarkMine": "Not mine",
     "ignoreValue": "Don't detect again",
     "unignoreValue": "Detect again"
   },
@@ -140,7 +177,9 @@
     "revealTitle": "Show sensitive values",
     "revealBody": "This will display personal data on screen. Values are not saved, but can be seen by anyone nearby.",
     "deleteTitle": "Delete file",
-    "deleteBody": "Move this file to the trash?"
+    "deleteBody": "Move this file to the trash?",
+    "neutralizeBody": "This will permanently redact personal data in the file using current masking rules. This action cannot be undone.",
+    "clearBody": "This will clear all scanned data, alerts, and file records. Are you sure? You cannot undo this action."
   },
   "risk": {
     "low": "Low",
@@ -212,10 +251,16 @@
       "ethereum": "Ethereum",
       "us_ssn": "US Social Security",
       "us_passport": "US Passport",
+      "us_itin": "US ITIN",
       "uk_nhs": "UK NHS Number",
+      "uk_nino": "UK NINO",
       "fr_nir": "French NIR",
+      "fr_tva": "French VAT Number",
       "es_dni": "Spanish DNI",
+      "es_nie": "Spanish NIE",
+      "es_cif": "Spanish CIF",
       "de_tax_id": "German Tax ID",
+      "de_vat": "German VAT Number",
       "person": "Person Name",
       "organization": "Organization",
       "location": "Location"
@@ -229,15 +274,21 @@
       "mac_address": "MAC addresses",
       "bitcoin": "Bitcoin addresses",
       "ethereum": "Ethereum addresses",
-    "person": "Names of persons with context analysis",
-    "organization": "Company and organization names",
-    "location": "Geographic locations",
-    "us_ssn": "US Social Security Numbers (9 digits, XXX-XX-XXXX)",
-    "us_passport": "US Passport numbers",
-    "uk_nhs": "UK NHS numbers",
-    "fr_nir": "French Social Security numbers (NIR)",
-    "es_dni": "Spanish ID numbers (DNI)",
-    "de_tax_id": "German tax ID numbers"
+      "person": "Names of persons with context analysis",
+      "organization": "Company and organization names",
+      "location": "Geographic locations",
+      "us_ssn": "US Social Security Numbers (9 digits, XXX-XX-XXXX)",
+      "us_passport": "US Passport numbers",
+      "us_itin": "US Individual Taxpayer Identification Numbers (ITIN)",
+      "uk_nhs": "UK NHS numbers",
+      "uk_nino": "UK National Insurance numbers (NINO)",
+      "fr_nir": "French Social Security numbers (NIR)",
+      "fr_tva": "French VAT identification numbers",
+      "es_dni": "Spanish ID numbers (DNI)",
+      "es_nie": "Spanish Foreigner Identity numbers (NIE)",
+      "es_cif": "Spanish company tax identifiers (CIF)",
+      "de_tax_id": "German tax ID numbers",
+      "de_vat": "German VAT identification numbers"
     }
   },
   "debug": {

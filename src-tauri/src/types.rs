@@ -94,7 +94,7 @@ pub struct RevealedCategory {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RevealedValue {
     pub value: String,
-    pub is_mine: bool,
+    pub is_ignored: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

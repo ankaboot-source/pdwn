@@ -70,7 +70,11 @@ pub async fn run_initial_scan(
     state: AppState,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
-    let ignored_snapshot = state.db.get_ignored_values_snapshot().await.unwrap_or_default();
+    let ignored_snapshot = state
+        .db
+        .get_ignored_values_snapshot()
+        .await
+        .unwrap_or_default();
     let settings = state.settings.lock().await.clone();
     let mut candidates = Vec::new();
     for dir in settings.watched_dirs() {
@@ -109,11 +113,7 @@ pub async fn run_initial_scan(
         }
     }
 
-    let custom_detectors = state
-        .db
-        .list_enabled_custom_detectors()
-        .await
-        .unwrap_or_default();
+    let custom_detectors = crate::yaml_custom_detectors(&state).await;
 
     // Scan recent files first while still covering subdirectories.
     candidates.sort_by_key(|(mtime, _)| -mtime);
@@ -142,6 +142,7 @@ pub async fn run_initial_scan(
             &custom_detectors,
             &entity_settings,
             &p,
+            Some(&ignored_snapshot),
         )
         .await;
         processed += 1;
@@ -159,6 +160,7 @@ async fn initial_process_file(
     custom_detectors: &[crate::types::CustomDetector],
     entity_settings: &[crate::types::EntitySetting],
     path: &std::path::Path,
+    ignored: Option<&crate::types::IgnoredValuesSnapshot>,
 ) -> Result<()> {
     if !path.is_file() {
         return Ok(());
@@ -192,7 +194,7 @@ async fn initial_process_file(
         &custom_detectors,
         &entity_settings,
         scanner::ScanMode::Redacted,
-        Some(&ignored_snapshot),
+        ignored,
     )
     .await
     {

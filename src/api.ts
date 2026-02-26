@@ -46,7 +46,7 @@ export type UiAlert = {
 
 export type RevealedCategory = {
   category: string;
-  values: { value: string; is_mine: boolean; is_ignored: boolean }[];
+  values: { value: string; is_ignored: boolean }[];
 };
 
 export type Report = {
@@ -121,6 +121,10 @@ export async function deleteFileToTrash(fileId: number): Promise<void> {
   await invoke("delete_file_to_trash", { fileId });
 }
 
+export async function neutralizeFile(fileId: number): Promise<number> {
+  return invoke("neutralize_file", { fileId });
+}
+
 export async function openInFileManager(path: string): Promise<void> {
   await invoke("open_in_file_manager", { path });
 }
@@ -161,14 +165,6 @@ export async function setSettings(settings: Settings): Promise<void> {
   await invoke("set_settings", { settings });
 }
 
-export async function markValueAsMine(category: string, value: string): Promise<void> {
-  await invoke("mark_value_as_mine", { category, value });
-}
-
-export async function unmarkValueAsMine(category: string, value: string): Promise<void> {
-  await invoke("unmark_value_as_mine", { category, value });
-}
-
 export async function ignoreValue(category: string, value: string): Promise<void> {
   await invoke("ignore_value", { category, value });
 }
@@ -185,6 +181,36 @@ export type EntitySetting = {
   positive_indicators: string | null;
   negative_indicators: string | null;
   threshold: number | null;
+};
+
+export type TypeDefinition = {
+  id: string;
+  display_name_key: string;
+  description_key: string;
+  category: string;
+  risk_level: RiskLevel;
+  requires_key: boolean;
+  key_labels: string[];
+  advanced: TypeAdvanced;
+  enabled: boolean;
+  locale_requirement: string | null;
+  positive_indicators: string | null;
+  negative_indicators: string | null;
+  threshold: number | null;
+  origin: string;
+  filename_regex?: string | null;
+  field_name_regex?: string | null;
+  value_regex?: string | null;
+};
+
+export type TypeAdvanced = {
+  blocked_extensions: string[];
+  filename_keywords: FilenameKeyword[];
+};
+
+export type FilenameKeyword = {
+  keyword: string;
+  score: number;
 };
 
 export async function getEntitySettings(): Promise<EntitySetting[]> {
@@ -207,4 +233,16 @@ export async function updateContextualEntity(
     negativeIndicators,
     threshold,
   });
+}
+
+export async function listTypeDefinitions(): Promise<TypeDefinition[]> {
+  return invoke("list_type_definitions");
+}
+
+export async function reloadTypeCatalog(): Promise<string> {
+  return invoke("reload_type_catalog");
+}
+
+export async function upsertCustomTypeDefinition(input: TypeDefinition): Promise<string> {
+  return invoke("upsert_custom_type_definition", { input });
 }

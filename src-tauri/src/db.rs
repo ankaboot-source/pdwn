@@ -1,6 +1,6 @@
 use crate::settings::Settings;
 use crate::types::{
-    CustomDetector, EntitySetting, FileId, NewCustomDetector, Reason, Report, RiskLevel, UiAlert,
+    CustomDetector, EntitySetting, FileId, IgnoredValuesSnapshot, NewCustomDetector, Reason, Report, RiskLevel, UiAlert,
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -134,7 +134,7 @@ impl Db {
         Ok(())
     }
 
-pub async fn seed_default_entity_settings(&self) -> Result<()> {
+    pub async fn seed_default_entity_settings(&self) -> Result<()> {
         let conn = self.conn.lock().await;
 
         // Check if entity_settings is empty
@@ -592,6 +592,7 @@ pub async fn seed_default_entity_settings(&self) -> Result<()> {
         Ok(out)
     }
 
+    #[allow(dead_code)]
     pub async fn list_enabled_custom_detectors(&self) -> Result<Vec<CustomDetector>> {
         let all = self.list_custom_detectors().await?;
         Ok(all.into_iter().filter(|d| d.enabled).collect())
@@ -682,85 +683,6 @@ pub async fn seed_default_entity_settings(&self) -> Result<()> {
         let conn = self.conn.lock().await;
         conn.execute("DELETE FROM custom_detectors WHERE id=?", params![id])
             .await?;
-        Ok(())
-    }
-
-    pub async fn seed_default_custom_detectors(&self, lang: &str, now: i64) -> Result<()> {
-        let conn = self.conn.lock().await;
-        let mut rows = conn
-            .query("SELECT COUNT(*) FROM custom_detectors", params![])
-            .await?;
-        let row = rows
-            .next()
-            .await?
-            .ok_or_else(|| anyhow!("missing custom_detectors count"))?;
-        let count: i64 = row.get(0)?;
-        drop(rows);
-        if count > 0 {
-            return Ok(());
-        }
-
-        let mut defaults: Vec<NewCustomDetector> = Vec::new();
-        let short = lang.to_lowercase();
-        if short.starts_with("fr") {
-            defaults.push(NewCustomDetector {
-                name: "NIR".to_string(),
-                risk_level: RiskLevel::High,
-                filename_regex: Some(r"(?i)\bnir\b".to_string()),
-                field_name_regex: Some(
-                    r"(?i)\b(?:nir|numero\s+de\s+securite\s+sociale|num(?:e|\x{e9})ro\s+insee|insee)\b"
-                        .to_string(),
-                ),
-                value_regex: Some(r"\b[12]\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{6}\d{2}\b".to_string()),
-                enabled: true,
-            });
-        } else if short.starts_with("es") {
-            defaults.push(NewCustomDetector {
-                name: "DNI/NIE".to_string(),
-                risk_level: RiskLevel::High,
-                filename_regex: Some(r"(?i)\b(?:dni|nie)\b".to_string()),
-                field_name_regex: Some(
-                    r"(?i)\b(?:dni|nie|documento\s+nacional\s+de\s+identidad)\b".to_string(),
-                ),
-                value_regex: Some(
-                    r"\b(?:\d{8}[A-HJ-NP-TV-Z]|[XYZ]\d{7}[A-HJ-NP-TV-Z])\b".to_string(),
-                ),
-                enabled: true,
-            });
-        } else {
-            defaults.push(NewCustomDetector {
-                name: "Government ID".to_string(),
-                risk_level: RiskLevel::High,
-                filename_regex: Some(r"(?i)\b(?:id|identity|passport)\b".to_string()),
-                field_name_regex: Some(
-                    r"(?i)\b(?:national\s+id|government\s+id|passport\s+number)\b".to_string(),
-                ),
-                value_regex: Some(r"\b[A-Z0-9]{6,18}\b".to_string()),
-                enabled: false,
-            });
-        }
-
-        for detector in defaults {
-            let risk_level = serde_json::to_string(&detector.risk_level)?
-                .trim_matches('"')
-                .to_string();
-            conn.execute(
-                r#"INSERT INTO custom_detectors(name, risk_level, filename_regex, field_name_regex, value_regex, enabled, created_at, updated_at)
-                   VALUES(?, ?, ?, ?, ?, ?, ?, ?)"#,
-                params![
-                    detector.name,
-                    risk_level,
-                    detector.filename_regex,
-                    detector.field_name_regex,
-                    detector.value_regex,
-                    if detector.enabled { 1 } else { 0 },
-                    now,
-                    now
-                ],
-            )
-            .await?;
-        }
-
         Ok(())
     }
 

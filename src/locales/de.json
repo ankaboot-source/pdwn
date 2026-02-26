@@ -1,7 +1,7 @@
 {
   "app": {
-    "name": "Detector fur personenbezogene Daten",
-    "tagline": "Uberwacht deine Downloads, erkennt personenbezogene Daten und Geheimnisse und hilft dir schnell zu reagieren."
+    "name": "PDWN",
+    "tagline": "Personal Data Watch & Neutralize. Erkenne Datenexposition fruh und reduziere das Leak-Risiko schnell."
   },
   "common": {
     "refresh": "Aktualisieren",
@@ -31,9 +31,11 @@
     "about": "Uber",
     "legal": "Rechtliches",
     "customTypes": "Benutzerdefinierte Typen",
-    "types": "Typen"
+    "types": "Typen",
+    "clearAll": "Alle Daten loschen"
   },
   "custom": {
+    "customRulesTitle": "Benutzerdefinierte Regeln",
     "add": "Typ hinzufugen",
     "edit": "Bearbeiten",
     "delete": "Loschen",
@@ -53,7 +55,9 @@
   },
   "types": {
     "standardTab": "Standard",
+    "regionalTab": "Regional",
     "customTab": "Benutzerdefiniert",
+    "readOnly": "Nur lesen",
     "standardHelp": "Standardtypen sind integriert und schreibgeschutzt. Verwende benutzerdefinierte Typen fur lokale oder fachliche Daten.",
     "desc": {
       "email": "E-Mail-Adressen.",
@@ -72,13 +76,47 @@
       "secret": "Technische Geheimnisse (API key, Token, Passwort).",
       "weak_archive_encryption": "ZIP-Archive mit schwacher ZipCrypto-Verschlusselung.",
       "file_name_signal": "Sensible Stichworter im Dateinamen."
+    },
+    "reloadBtn": "Typen neu laden",
+    "reloadSuccess": "Typen erfolgreich neu geladen",
+    "reloadError": "Fehler beim Neuladen der Typen: {{error}}",
+    "loading": "Lade Typkatalog…",
+    "activeLocale": "Locale: {{locale}}",
+    "standardTypesTitle": "Standardtypen-Katalog",
+    "regionalTypesTitle": "Regionale Typen",
+    "customYamlTitle": "Benutzerdefinierte YAML-Typen",
+    "openConfigDir": "Typenordner offnen",
+    "empty": "Keine Typen in diesem Tab.",
+    "emptyCustomYaml": "Noch keine benutzerdefinierten YAML-Typen fur diese Sprache.",
+    "categoryLabel": "Kategorie",
+    "riskLabel": "Risiko",
+    "originLabel": "Herkunft",
+    "localeRequirement": "Locale",
+    "requiresKey": "Schlüssel erforderlich",
+    "optionalKey": "Schlüssel optional",
+    "keyLabels": "Schlüsselbezeichnungen",
+    "advanced": "Erweitert",
+    "none": "Keine",
+    "blockedExtensions": "Ignorierte Erweiterungen",
+    "filenameKeywords": "Dateinamen-Schlüsselwörter",
+    "contextPositiveIndicators": "Positive Indikatoren",
+    "contextNegativeIndicators": "Negative Indikatoren",
+    "contextThreshold": "Kontextschwelle",
+    "origin": {
+      "base": "Standardkatalog",
+      "locale": "Lokale Überschreibung",
+      "custom": "Benutzerdefiniert"
     }
   },
   "about": {
-    "description": "Diese lokale Anwendung uberwacht ausgewahlte Ordner, erkennt personenbezogene Daten und technische Geheimnisse und schlagt sichere Aufbewahrungs- oder Loschaktionen vor.",
+    "description": "PDWN (Personal Data Watch & Neutralize) uberwacht ausgewahlte Ordner, erkennt personenbezogene Daten und technische Geheimnisse und schlagt sichere Aufbewahrungs- oder Loschaktionen vor.",
     "authorLabel": "Autor:",
     "author": "badreddine",
-    "legalText": "Lizenziert unter AGPL-3.0-only. Die Analyse erfolgt lokal. Angezeigte Klartextwerte werden nicht gespeichert. Dieses Tool hilft bei der Erkennung und ersetzt kein formales Compliance-Audit."
+    "legalText": "Lizenziert unter AGPL-3.0-only. Die Analyse erfolgt lokal. Angezeigte Klartextwerte werden nicht gespeichert. Dieses Tool hilft bei der Erkennung und ersetzt kein formales Compliance-Audit.",
+    "openAgplLink": "AGPLv3-Lizenz offnen",
+    "showDependencies": "Abhangigkeiten anzeigen",
+    "hideDependencies": "Abhangigkeiten ausblenden",
+    "dependenciesTitle": "Drittanbieter-Abhangigkeiten"
   },
   "alerts": {
     "title": "Warnungen",
@@ -127,11 +165,10 @@
     "delete": "In den Papierkorb verschieben",
     "ignore": "Ignorieren",
     "unignore": "Nicht mehr ignorieren",
+    "neutralize": "Neutralisieren",
     "reveal": "Alle personenbezogenen Daten anzeigen",
     "hide": "Personenbezogene Daten ausblenden",
     "revealOne": "Wert anzeigen",
-    "markMine": "Gehort mir",
-    "unmarkMine": "Gehort nicht mir",
     "ignoreValue": "Nicht mehr erkennen",
     "unignoreValue": "Erneut erkennen"
   },
@@ -140,7 +177,9 @@
     "revealTitle": "Sensible Werte anzeigen",
     "revealBody": "Dies zeigt personenbezogene Daten auf dem Bildschirm. Sie werden nicht gespeichert, konnen aber von Personen in der Nahe gesehen werden.",
     "deleteTitle": "Datei loschen",
-    "deleteBody": "Diese Datei in den Papierkorb verschieben?"
+    "deleteBody": "Diese Datei in den Papierkorb verschieben?",
+    "neutralizeBody": "Dadurch werden personenbezogene Daten in der Datei dauerhaft nach den aktuellen Maskierungsregeln geschwarzt. Diese Aktion kann nicht ruckgangig gemacht werden.",
+    "clearBody": "Dadurch werden alle gescannten Daten, Warnungen und Dateieintrage geloscht. Bist du sicher? Diese Aktion kann nicht ruckgangig gemacht werden."
   },
   "risk": {
     "low": "Niedrig",
@@ -212,10 +251,16 @@
       "ethereum": "Ethereum",
       "us_ssn": "US-Sozialversicherung",
       "us_passport": "US-Reisepass",
+      "us_itin": "US-ITIN",
       "uk_nhs": "UK-NHS-Nummer",
+      "uk_nino": "UK-NINO",
       "fr_nir": "Franzosische NIR",
+      "fr_tva": "Franzosische USt-IdNr.",
       "es_dni": "Spanische DNI",
+      "es_nie": "Spanische NIE",
+      "es_cif": "Spanische CIF",
       "de_tax_id": "Deutsche Steuer-ID",
+      "de_vat": "Deutsche USt-IdNr.",
       "person": "Personenname",
       "organization": "Organisation",
       "location": "Ort"
@@ -234,10 +279,16 @@
       "location": "Geografische Orte",
       "us_ssn": "US Sozialversicherungsnummern (9 Ziffern, XXX-XX-XXXX)",
       "us_passport": "US Passnummern",
+      "us_itin": "US ITIN-Nummern",
       "uk_nhs": "UK NHS Nummern",
+      "uk_nino": "UK Sozialversicherungsnummern (NINO)",
       "fr_nir": "Franzosische Sozialversicherungsnummern (NIR)",
+      "fr_tva": "Franzosische Umsatzsteuer-Identifikationsnummern",
       "es_dni": "Spanische ID-Nummern (DNI)",
-      "de_tax_id": "Deutsche Steuernummern"
+      "es_nie": "Spanische Auslander-Identitatsnummern (NIE)",
+      "es_cif": "Spanische Unternehmens-Steuerkennungen (CIF)",
+      "de_tax_id": "Deutsche Steuernummern",
+      "de_vat": "Deutsche Umsatzsteuer-Identifikationsnummern"
     }
   },
   "debug": {

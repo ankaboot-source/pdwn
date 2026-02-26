@@ -138,7 +138,11 @@ pub async fn start_watchers(app: &tauri::AppHandle, state: AppState) -> Result<(
 
             {
                 // Fetch ignored values snapshot for filtering
-                let ignored_snapshot = worker_state.db.get_ignored_values_snapshot().await.unwrap_or_default();
+                let ignored_snapshot = worker_state
+                    .db
+                    .get_ignored_values_snapshot()
+                    .await
+                    .unwrap_or_default();
 
                 let mut ready = Vec::new();
                 {
@@ -157,7 +161,9 @@ pub async fn start_watchers(app: &tauri::AppHandle, state: AppState) -> Result<(
                     });
                 }
                 for path in ready {
-                    let _ = process_file(&worker_app, &worker_state, &path, Some(&ignored_snapshot)).await;
+                    let _ =
+                        process_file(&worker_app, &worker_state, &path, Some(&ignored_snapshot))
+                            .await;
                 }
             }
         }
@@ -175,7 +181,12 @@ pub async fn restart_watchers(app: &tauri::AppHandle, state: AppState) -> Result
 
 type ArcPending = std::sync::Arc<Mutex<HashMap<PathBuf, PendingFile>>>;
 
-async fn process_file(app: &tauri::AppHandle, state: &AppState, path: &Path, ignored: Option<&crate::types::IgnoredValuesSnapshot>) -> Result<()> {
+async fn process_file(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    path: &Path,
+    ignored: Option<&crate::types::IgnoredValuesSnapshot>,
+) -> Result<()> {
     tracing::debug!(path = %path.display(), "watcher:process_file:start");
     if is_hidden_path(path) {
         return Ok(());
@@ -213,11 +224,7 @@ async fn process_file(app: &tauri::AppHandle, state: &AppState, path: &Path, ign
         return Ok(());
     }
 
-    let custom_detectors = state
-        .db
-        .list_enabled_custom_detectors()
-        .await
-        .unwrap_or_default();
+    let custom_detectors = crate::yaml_custom_detectors(&state).await;
     let entity_settings = state.db.get_entity_settings().await.unwrap_or_default();
 
     let scan = match scanner::scan_path_with_ignore_snapshot(

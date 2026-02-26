@@ -1,0 +1,15 @@
+types:
+  - id: custom_test
+    display_name_key: custom.test
+    description_key: custom.desc.test
+    category: security
+    risk_level: high
+    requires_key: true
+    key_labels: ["mon_secret"]
+    advanced:
+      blocked_extensions: []
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null

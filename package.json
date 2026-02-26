@@ -1,5 +1,5 @@
 {
-  "name": "personal-data-detector-desktop",
+  "name": "pdwn",
   "private": true,
   "version": "0.1.0",
   "license": "AGPL-3.0-only",
@@ -14,6 +14,9 @@
     "fmt": "biome check --write .",
     "fmt:check": "biome ci .",
     "i18n:check": "bun run scripts/check-i18n.ts",
+    "dataset:sync": "bun run scripts/sync-integration-dataset.ts",
+    "test:integration": "cargo test --manifest-path src-tauri/Cargo.toml integration_dataset_detection_consistency -- --nocapture",
+    "test:integration:refresh": "bun run dataset:sync && bun run test:integration",
     "check:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings && cargo test --manifest-path src-tauri/Cargo.toml",
     "check": "bun run typecheck && bun run fmt:check && bun run i18n:check && bun run check:rust",
     "prepare": "lefthook install || true"

@@ -138,10 +138,6 @@ static RE_SECRET_KV: Lazy<Regex> = Lazy::new(|| {
 static RE_BEARER_TOKEN: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)\bbearer\s+([A-Za-z0-9._\-+/=]{12,512})\b").unwrap());
 
-static RE_STANDALONE_SECRET: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)\b(?:sk|pk|rk|ghp|glpat|xoxb|xoxp|AKIA|AIza)[A-Za-z0-9_\-]{12,}\b").unwrap()
-});
-
 static RE_JWT: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b").unwrap()
 });
@@ -240,6 +236,9 @@ static FILENAME_KEYWORDS: &[(&str, PiiCategory, i64)] = &[
     ("secret", PiiCategory::FileNameSignal, 5),
     ("token", PiiCategory::FileNameSignal, 5),
     ("password", PiiCategory::FileNameSignal, 6),
+    ("client_secret", PiiCategory::FileNameSignal, 8),
+    ("api_key", PiiCategory::FileNameSignal, 8),
+    ("access_token", PiiCategory::FileNameSignal, 8),
     ("cv", PiiCategory::FileNameSignal, 2),
     ("resume", PiiCategory::FileNameSignal, 2),
     ("adresse", PiiCategory::FileNameSignal, 3),
@@ -295,13 +294,21 @@ fn filename_has_keyword(normalized: &str, keyword: &str) -> bool {
     haystack.contains(&needle)
 }
 
-pub fn detect_in_text(text: &str) -> BTreeMap<PiiCategory, Vec<String>> {
+#[allow(unused_variables)]
+pub fn detect_in_text(
+    text: &str,
+    enable_secret_detection: bool,
+) -> BTreeMap<PiiCategory, Vec<String>> {
     let mut map = BTreeMap::new();
-    detect_into(text, &mut map);
+    detect_into(text, enable_secret_detection, &mut map);
     map
 }
 
-fn detect_into(text: &str, map: &mut BTreeMap<PiiCategory, Vec<String>>) {
+fn detect_into(
+    text: &str,
+    enable_secret_detection: bool,
+    map: &mut BTreeMap<PiiCategory, Vec<String>>,
+) {
     for m in RE_EMAIL.find_iter(text) {
         let email = m.as_str();
         if is_example_email(email) {
@@ -311,7 +318,7 @@ fn detect_into(text: &str, map: &mut BTreeMap<PiiCategory, Vec<String>>) {
     }
     for m in RE_IP.find_iter(text) {
         let ip = m.as_str();
-        if is_relevant_public_ip(ip, text) {
+        if is_relevant_public_ip(ip, text, m.start(), m.end()) {
             push_limited(map, PiiCategory::IpAddress, ip);
         }
     }
@@ -374,24 +381,19 @@ fn detect_into(text: &str, map: &mut BTreeMap<PiiCategory, Vec<String>>) {
         );
     }
 
-    for m in RE_STANDALONE_SECRET.find_iter(text) {
-        let value = m.as_str();
-        if looks_like_secret_value(value) && !likely_calendar_noise(value, text) {
-            push_limited(map, PiiCategory::Secret, value);
+    if enable_secret_detection {
+        for m in RE_JWT.find_iter(text) {
+            let value = m.as_str();
+            if looks_like_secret_value(value) && !likely_calendar_noise(value, text) {
+                push_limited(map, PiiCategory::Secret, value);
+            }
         }
-    }
 
-    for m in RE_JWT.find_iter(text) {
-        let value = m.as_str();
-        if looks_like_secret_value(value) && !likely_calendar_noise(value, text) {
-            push_limited(map, PiiCategory::Secret, value);
-        }
-    }
-
-    // Enhanced secret detection from secrets module
-    for secret in crate::secrets::detect_secrets(text) {
-        if !likely_calendar_noise(&secret, text) {
-            push_limited(map, PiiCategory::Secret, &secret);
+        // Enhanced secret detection from secrets module
+        for secret in crate::secrets::detect_secrets(text) {
+            if !likely_calendar_noise(&secret, text) {
+                push_limited(map, PiiCategory::Secret, &secret);
+            }
         }
     }
 
@@ -618,7 +620,7 @@ fn looks_like_address_value(key: &str, value: &str) -> bool {
     has_street_word && has_digit
 }
 
-fn is_relevant_public_ip(ip: &str, full_text: &str) -> bool {
+fn is_relevant_public_ip(ip: &str, full_text: &str, match_start: usize, match_end: usize) -> bool {
     let parts: Vec<u8> = ip.split('.').filter_map(|s| s.parse::<u8>().ok()).collect();
     if parts.len() != 4 {
         return false;
@@ -636,17 +638,63 @@ fn is_relevant_public_ip(ip: &str, full_text: &str) -> bool {
         return false;
     }
 
+    // SVG/XML graphics can contain dotted numeric patterns that look like IPv4.
+    // Require nearby network context to keep false positives low there.
+    if looks_like_svg_markup(full_text)
+        && !has_network_context_near(full_text, match_start, match_end)
+    {
+        return false;
+    }
+
     // Exclude likely section numbering like 1.2.3.1 in docs.
     if a <= 31 && b <= 31 && c <= 31 && d <= 31 {
-        let ctx = full_text.to_lowercase();
-        let has_network_context =
-            ctx.contains("ip") || ctx.contains("adresse ip") || ctx.contains("hostname");
-        if !has_network_context {
+        if !has_network_context_near(full_text, match_start, match_end) {
             return false;
         }
     }
 
     true
+}
+
+fn looks_like_svg_markup(full_text: &str) -> bool {
+    let lower = full_text.to_lowercase();
+    lower.contains("<svg")
+        || lower.contains("</svg>")
+        || lower.contains("xmlns=\"http://www.w3.org/2000/svg\"")
+}
+
+fn has_network_context_near(full_text: &str, match_start: usize, match_end: usize) -> bool {
+    let mut left = match_start.saturating_sub(64);
+    while left > 0 && !full_text.is_char_boundary(left) {
+        left -= 1;
+    }
+    let mut right = (match_end + 64).min(full_text.len());
+    while right < full_text.len() && !full_text.is_char_boundary(right) {
+        right += 1;
+    }
+    let local = full_text[left..right].to_lowercase();
+
+    let tokens: Vec<&str> = local
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+
+    tokens.iter().any(|t| {
+        matches!(
+            *t,
+            "ip" | "ipv4"
+                | "ipv6"
+                | "hostname"
+                | "dns"
+                | "gateway"
+                | "router"
+                | "server"
+                | "clientip"
+                | "remoteaddr"
+                | "remoteip"
+                | "addr"
+        )
+    })
 }
 
 fn looks_like_secret_value(value: &str) -> bool {
@@ -1058,7 +1106,7 @@ pub fn reveal_matches(map: &BTreeMap<PiiCategory, Vec<String>>) -> RevealedFindi
                 .take(100)
                 .map(|v| RevealedValue {
                     value: v.clone(),
-                    is_mine: false,
+                    is_ignored: false,
                 })
                 .collect(),
         });

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDWN - Personal Data Watch & Neutralize</title>
+    <meta name="description" content="PDWN helps you detect and neutralize personal-data exposure before leaks escalate." />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="hero">
+      <p class="eyebrow">PDWN</p>
+      <img class="hero-wordmark" src="./assets/brand/pdwn-wordmark.png" alt="PDWN wordmark" />
+      <p class="tagline">Personal Data Watch & Neutralize</p>
+      <p class="sub">Local-first desktop protection against personal-data exposure.</p>
+      <div class="actions">
+        <a class="btn primary" id="download-latest" href="#downloads">Download latest release</a>
+        <a class="btn" href="https://github.com" target="_blank" rel="noreferrer">View on GitHub</a>
+      </div>
+      <p class="pronunciation">PDWN means <strong>Personal Data Watch & Neutralize</strong>.</p>
+    </header>
+
+    <main>
+      <section class="panel" id="trust">
+        <h2>Why teams use PDWN</h2>
+        <ul>
+          <li>Scans run locally on your machine.</li>
+          <li>Flags personal data and secrets with risk scoring.</li>
+          <li>Helps neutralize exposure quickly: review, ignore, or trash.</li>
+        </ul>
+      </section>
+
+      <section class="panel screenshot-panel">
+        <h2>Application preview</h2>
+        <figure>
+          <img src="./assets/screenshots/pdwn-main.png" alt="PDWN desktop application screenshot" id="app-screenshot" />
+          <figcaption>Update this image with <code>scripts/capture-screenshot.sh</code>.</figcaption>
+        </figure>
+      </section>
+
+      <section class="panel" id="downloads">
+        <h2>Latest release</h2>
+        <p id="release-meta">Loading release metadata...</p>
+        <div id="download-list" class="downloads"></div>
+      </section>
+
+      <section class="panel" id="notes">
+        <h2>Release notes</h2>
+        <pre id="release-notes">Loading...</pre>
+      </section>
+    </main>
+
+    <footer>
+      <p>PDWN · White-hacker grade local-first protection.</p>
+      <p>Logo assets: <code>assets/pdwn-logo.png</code> and <code>assets/pdwn-wordmark.png</code></p>
+    </footer>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

@@ -1,7 +1,7 @@
 {
   "app": {
-    "name": "Detector de datos personales",
-    "tagline": "Vigila tus descargas, detecta datos personales y secretos, y te ayuda a actuar rapido."
+    "name": "PDWN",
+    "tagline": "Personal Data Watch & Neutralize. Detecta exposicion de datos y neutraliza riesgos rapidamente."
   },
   "common": {
     "refresh": "Actualizar",
@@ -31,9 +31,11 @@
     "about": "Acerca de",
     "legal": "Aviso legal",
     "customTypes": "Tipos personalizados",
-    "types": "Tipos"
+    "types": "Tipos",
+    "clearAll": "Borrar todos los datos"
   },
   "custom": {
+    "customRulesTitle": "Reglas personalizadas",
     "add": "Agregar tipo",
     "edit": "Editar",
     "delete": "Eliminar",
@@ -53,7 +55,9 @@
   },
   "types": {
     "standardTab": "Estandar",
+    "regionalTab": "Regionales",
     "customTab": "Personalizados",
+    "readOnly": "Solo lectura",
     "standardHelp": "Los tipos estandar son integrados y de solo lectura. Usa tipos personalizados para datos locales o de negocio.",
     "desc": {
       "email": "Direcciones de correo.",
@@ -72,13 +76,47 @@
       "secret": "Secretos tecnicos (API key, token, contrasena).",
       "weak_archive_encryption": "Archivos ZIP con cifrado debil ZipCrypto.",
       "file_name_signal": "Palabras sensibles detectadas en el nombre del archivo."
+    },
+    "reloadBtn": "Recargar tipos",
+    "reloadSuccess": "Tipos recargados correctamente",
+    "reloadError": "Error al recargar los tipos: {{error}}",
+    "loading": "Cargando catálogo de tipos…",
+    "activeLocale": "Locale: {{locale}}",
+    "standardTypesTitle": "Catalogo de tipos estandar",
+    "regionalTypesTitle": "Catalogo de tipos regionales",
+    "customYamlTitle": "Tipos YAML personalizados",
+    "openConfigDir": "Abrir carpeta de tipos",
+    "empty": "No hay tipos en esta pestana.",
+    "emptyCustomYaml": "Todavia no hay tipos YAML personalizados para este idioma.",
+    "categoryLabel": "Categoría",
+    "riskLabel": "Riesgo",
+    "originLabel": "Origen",
+    "localeRequirement": "Locale",
+    "requiresKey": "Requiere clave",
+    "optionalKey": "Clave opcional",
+    "keyLabels": "Claves",
+    "advanced": "Avanzado",
+    "none": "Ninguno",
+    "blockedExtensions": "Extensiones ignoradas",
+    "filenameKeywords": "Palabras clave de archivo",
+    "contextPositiveIndicators": "Indicadores positivos",
+    "contextNegativeIndicators": "Indicadores negativos",
+    "contextThreshold": "Umbral de contexto",
+    "origin": {
+      "base": "Catálogo predeterminado",
+      "locale": "Anulación local",
+      "custom": "Personalizado"
     }
   },
   "about": {
-    "description": "Esta aplicacion local vigila carpetas seleccionadas, detecta datos personales y secretos tecnicos, y propone acciones seguras de conservacion o eliminacion.",
+    "description": "PDWN (Personal Data Watch & Neutralize) vigila carpetas seleccionadas, detecta datos personales y secretos tecnicos, y propone acciones seguras de conservacion o eliminacion.",
     "authorLabel": "Autor:",
     "author": "badreddine",
-    "legalText": "Licencia AGPL-3.0-only. El analisis es local. Los valores revelados no se guardan. Esta herramienta ayuda a detectar y no reemplaza una auditoria formal de cumplimiento."
+    "legalText": "Licencia AGPL-3.0-only. El analisis es local. Los valores revelados no se guardan. Esta herramienta ayuda a detectar y no reemplaza una auditoria formal de cumplimiento.",
+    "openAgplLink": "Abrir licencia AGPLv3",
+    "showDependencies": "Mostrar dependencias",
+    "hideDependencies": "Ocultar dependencias",
+    "dependenciesTitle": "Dependencias de terceros"
   },
   "alerts": {
     "title": "Alertas",
@@ -127,11 +165,10 @@
     "delete": "Mover a la papelera",
     "ignore": "Ignorar",
     "unignore": "Dejar de ignorar",
+    "neutralize": "Neutralizar",
     "reveal": "Mostrar todos los datos personales",
     "hide": "Ocultar datos personales",
     "revealOne": "Mostrar valor",
-    "markMine": "Es mio",
-    "unmarkMine": "No es mio",
     "ignoreValue": "No detectar de nuevo",
     "unignoreValue": "Detectar de nuevo"
   },
@@ -140,7 +177,9 @@
     "revealTitle": "Mostrar valores sensibles",
     "revealBody": "Esto mostrara datos personales en pantalla. No se guardan, pero pueden ser vistos por otras personas.",
     "deleteTitle": "Eliminar archivo",
-    "deleteBody": "Mover este archivo a la papelera?"
+    "deleteBody": "Mover este archivo a la papelera?",
+    "neutralizeBody": "Esto ocultara de forma permanente los datos personales en el archivo usando las reglas actuales. Esta accion no se puede deshacer.",
+    "clearBody": "Esto borrara todos los datos analizados, alertas y registros de archivos. Estas seguro? Esta accion no se puede deshacer."
   },
   "risk": {
     "low": "Bajo",
@@ -212,10 +251,16 @@
       "ethereum": "Ethereum",
       "us_ssn": "Seguridad Social US",
       "us_passport": "Pasaporte US",
+      "us_itin": "ITIN US",
       "uk_nhs": "Numero NHS UK",
+      "uk_nino": "NINO UK",
       "fr_nir": "NIR Frances",
+      "fr_tva": "Numero IVA Frances",
       "es_dni": "DNI Espanol",
+      "es_nie": "NIE Espanol",
+      "es_cif": "CIF Espanol",
       "de_tax_id": "Numero fiscal Aleman",
+      "de_vat": "Numero IVA Aleman",
       "person": "Nombre de persona",
       "organization": "Organizacion",
       "location": "Ubicacion"
@@ -234,10 +279,16 @@
       "location": "Ubicaciones geograficas",
       "us_ssn": "Numeros de Seguro Social de EE.UU. (9 digitos, XXX-XX-XXXX)",
       "us_passport": "Numeros de pasaporte de EE.UU.",
+      "us_itin": "Numeros ITIN de EE.UU.",
       "uk_nhs": "Numeros NHS del Reino Unido",
+      "uk_nino": "Numeros de seguro nacional del Reino Unido (NINO)",
       "fr_nir": "Numeros de Seguridad Social frances (NIR)",
+      "fr_tva": "Numeros de identificacion de IVA frances",
       "es_dni": "Numeros de identidad espanol (DNI)",
-      "de_tax_id": "Numeros fiscales alemanes"
+      "es_nie": "Numeros de identidad de extranjeros en Espana (NIE)",
+      "es_cif": "Identificadores fiscales de empresas espanolas (CIF)",
+      "de_tax_id": "Numeros fiscales alemanes",
+      "de_vat": "Numeros de identificacion de IVA aleman"
     }
   },
   "debug": {

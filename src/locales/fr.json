@@ -1,7 +1,7 @@
 {
   "app": {
-    "name": "Détecteur de données personnelles",
-    "tagline": "Surveille vos téléchargements, détecte données personnelles et secrets, puis aide à agir rapidement."
+    "name": "PDWN",
+    "tagline": "Personal Data Watch & Neutralize. Détectez l'exposition rapidement et neutralisez le risque avant fuite."
   },
   "common": {
     "refresh": "Rafraîchir",
@@ -31,9 +31,11 @@
     "about": "A propos",
     "legal": "Mentions légales",
     "customTypes": "Types personnalisés",
-    "types": "Types"
+    "types": "Types",
+    "clearAll": "Effacer toutes les données"
   },
   "custom": {
+    "customRulesTitle": "Règles personnalisées",
     "add": "Ajouter un type",
     "edit": "Modifier",
     "delete": "Supprimer",
@@ -53,7 +55,9 @@
   },
   "types": {
     "standardTab": "Standards",
+    "regionalTab": "Régionaux",
     "customTab": "Personnalisés",
+    "readOnly": "Lecture seule",
     "standardHelp": "Les types standards sont intégrés et en lecture seule. Utilisez les types personnalisés pour vos besoins métier ou locaux.",
     "desc": {
       "email": "Adresses e-mail.",
@@ -72,13 +76,47 @@
       "secret": "Secrets techniques (clé API, token, mot de passe).",
       "weak_archive_encryption": "Archives ZIP utilisant le chiffrement faible ZipCrypto.",
       "file_name_signal": "Mots sensibles détectés dans le nom de fichier."
+    },
+    "reloadBtn": "Recharger les types",
+    "reloadSuccess": "Types rechargés avec succès",
+    "reloadError": "Échec du rechargement des types : {{error}}",
+    "loading": "Chargement du catalogue des types…",
+    "activeLocale": "Locale : {{locale}}",
+    "standardTypesTitle": "Catalogue des types standards",
+    "regionalTypesTitle": "Catalogue des types régionaux",
+    "customYamlTitle": "Types YAML personnalisés",
+    "openConfigDir": "Ouvrir le dossier des types",
+    "empty": "Aucun type dans cet onglet.",
+    "emptyCustomYaml": "Aucun type YAML personnalisé pour cette locale.",
+    "categoryLabel": "Catégorie",
+    "riskLabel": "Criticité",
+    "originLabel": "Origine",
+    "localeRequirement": "Locale",
+    "requiresKey": "Clef requise",
+    "optionalKey": "Clef optionnelle",
+    "keyLabels": "Clefs reconnues",
+    "advanced": "Avancé",
+    "none": "Aucun",
+    "blockedExtensions": "Extensions ignorées",
+    "filenameKeywords": "Mots-clés de nom de fichier",
+    "contextPositiveIndicators": "Indicateurs positifs",
+    "contextNegativeIndicators": "Indicateurs négatifs",
+    "contextThreshold": "Seuil de contexte",
+    "origin": {
+      "base": "Catalogue par défaut",
+      "locale": "Surcharge locale",
+      "custom": "Personnalisé"
     }
   },
   "about": {
-    "description": "Cette application locale surveille vos dossiers, détecte les données personnelles et secrets techniques, puis vous propose des actions de suppression ou de conservation maîtrisée.",
+    "description": "PDWN (Personal Data Watch & Neutralize) surveille vos dossiers, détecte les données personnelles et secrets techniques, puis vous propose des actions de suppression ou de conservation maîtrisée.",
     "authorLabel": "Auteur :",
     "author": "badreddine",
-    "legalText": "Licence AGPL-3.0-only. Les analyses sont locales. Les valeurs révélées ne sont pas persistées. Cette application fournit une aide à la détection et ne remplace pas un audit de conformité."
+    "legalText": "Licence AGPL-3.0-only. Les analyses sont locales. Les valeurs révélées ne sont pas persistées. Cette application fournit une aide à la détection et ne remplace pas un audit de conformité.",
+    "openAgplLink": "Ouvrir la licence AGPLv3",
+    "showDependencies": "Afficher les dépendances",
+    "hideDependencies": "Masquer les dépendances",
+    "dependenciesTitle": "Dépendances tierces"
   },
   "alerts": {
     "title": "Alertes",
@@ -127,11 +165,10 @@
     "delete": "Mettre à la corbeille",
     "ignore": "Ignorer",
     "unignore": "Ne plus ignorer",
+    "neutralize": "Neutraliser",
     "reveal": "Montrer toutes les données personnelles",
     "hide": "Masquer les données personnelles",
     "revealOne": "Afficher la valeur",
-    "markMine": "C'est à moi",
-    "unmarkMine": "Pas à moi",
     "ignoreValue": "Ne plus détecter",
     "unignoreValue": "Détecter à nouveau"
   },
@@ -140,7 +177,9 @@
     "revealTitle": "Afficher des valeurs sensibles",
     "revealBody": "Cela affichera des données personnelles à l'écran. Les valeurs ne sont pas sauvegardées, mais peuvent être vues par quelqu'un à proximité.",
     "deleteTitle": "Supprimer le fichier",
-    "deleteBody": "Mettre ce fichier à la corbeille ?"
+    "deleteBody": "Mettre ce fichier à la corbeille ?",
+    "neutralizeBody": "Cela va masquer de façon permanente les données personnelles dans le fichier en appliquant les règles actuelles. Cette action est irréversible.",
+    "clearBody": "Cela effacera toutes les données scannées, alertes et enregistrements de fichiers. Êtes-vous sûr ? Vous ne pourrez pas annuler cette action."
   },
   "risk": {
     "low": "Faible",
@@ -212,10 +251,16 @@
       "ethereum": "Ethereum",
       "us_ssn": "Sécurité sociale US",
       "us_passport": "Passeport US",
+      "us_itin": "ITIN US",
       "uk_nhs": "Numéro NHS UK",
+      "uk_nino": "NINO UK",
       "fr_nir": "NIR Français",
+      "fr_tva": "Numéro TVA Français",
       "es_dni": "DNI Espagnol",
+      "es_nie": "NIE Espagnol",
+      "es_cif": "CIF Espagnol",
       "de_tax_id": "Numéro fiscal Allemand",
+      "de_vat": "Numéro TVA Allemand",
       "person": "Nom de personne",
       "organization": "Organisation",
       "location": "Lieu"
@@ -229,15 +274,21 @@
       "mac_address": "Adresses MAC",
       "bitcoin": "Adresses Bitcoin",
       "ethereum": "Adresses Ethereum",
-    "person": "Noms de personnes avec analyse contextuelle",
-    "organization": "Noms d'entreprises et organisations",
-    "location": "Lieux géographiques",
-    "us_ssn": "Numéros de Sécurité Sociale américaine (9 chiffres, XXX-XX-XXXX)",
-    "us_passport": "Numéros de passeport américain",
-    "uk_nhs": "Numéros NHS britannique",
-    "fr_nir": "Numéros de Sécurité Sociale française (NIR)",
-    "es_dni": "Numéros d'identité espagnole (DNI)",
-    "de_tax_id": "Numéros fiscaux allemand"
+      "person": "Noms de personnes avec analyse contextuelle",
+      "organization": "Noms d'entreprises et organisations",
+      "location": "Lieux géographiques",
+      "us_ssn": "Numéros de Sécurité Sociale américaine (9 chiffres, XXX-XX-XXXX)",
+      "us_passport": "Numéros de passeport américain",
+      "us_itin": "Numéros ITIN américains",
+      "uk_nhs": "Numéros NHS britannique",
+      "uk_nino": "Numéros d'assurance nationale UK (NINO)",
+      "fr_nir": "Numéros de Sécurité Sociale française (NIR)",
+      "fr_tva": "Numéros d'identification TVA française",
+      "es_dni": "Numéros d'identité espagnole (DNI)",
+      "es_nie": "Numéros d'identité étrangers en Espagne (NIE)",
+      "es_cif": "Identifiants fiscaux des entreprises espagnoles (CIF)",
+      "de_tax_id": "Numéros fiscaux allemand",
+      "de_vat": "Numéros d'identification TVA allemande"
     }
   },
   "debug": {

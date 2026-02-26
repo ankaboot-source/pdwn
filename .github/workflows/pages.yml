@@ -1,0 +1,54 @@
+name: Pages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "website/**"
+      - "scripts/update-release-data.mjs"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build release metadata
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_JSON_PATH: website/data/release.json
+        run: node scripts/update-release-data.mjs
+
+      - name: Sync brand assets into website bundle
+        run: mkdir -p website/assets/brand && cp assets/pdwn-logo.png website/assets/brand/pdwn-logo.png && cp assets/pdwn-wordmark.png website/assets/brand/pdwn-wordmark.png
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

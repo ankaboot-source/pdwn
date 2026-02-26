@@ -1,0 +1,32 @@
+types:
+  - id: fr_nir
+    display_name_key: entities.types.fr_nir
+    description_key: entities.descriptions.fr_nir
+    category: pii
+    risk_level: critical
+    requires_key: false
+    key_labels: []
+    advanced:
+      blocked_extensions: []
+    enabled: true
+    locale_requirement: "fr"
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    value_regex: '\b[12]\d{14}\b'
+
+  - id: fr_tva
+    display_name_key: entities.types.fr_tva
+    description_key: entities.descriptions.fr_tva
+    category: pii
+    risk_level: high
+    requires_key: false
+    key_labels: []
+    advanced:
+      blocked_extensions: []
+    enabled: true
+    locale_requirement: "fr"
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    value_regex: '(?i)\bFR[0-9A-Z]{2}\d{9}\b'

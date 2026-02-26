@@ -26,7 +26,15 @@ pub async fn scan_path_with_settings(
     entity_settings: &[EntitySetting],
     mode: ScanMode,
 ) -> Result<ScanSummary> {
-    scan_path_with_ignore_snapshot(path, settings, custom_detectors, entity_settings, mode, None).await
+    scan_path_with_ignore_snapshot(
+        path,
+        settings,
+        custom_detectors,
+        entity_settings,
+        mode,
+        None,
+    )
+    .await
 }
 
 pub async fn scan_path_with_ignore_snapshot(
@@ -44,30 +52,16 @@ pub async fn scan_path_with_ignore_snapshot(
     let entity_settings = entity_settings.to_vec();
     let ignored_snapshot = ignored.cloned();
     tokio::task::spawn_blocking(move || {
-        scan_path_blocking_with_ignore(&path, &settings, &custom_detectors, &entity_settings, mode, ignored_snapshot)
+        scan_path_blocking_with_ignore(
+            &path,
+            &settings,
+            &custom_detectors,
+            &entity_settings,
+            mode,
+            ignored_snapshot,
+        )
     })
     .await?
-}
-
-fn scan_path_blocking_with_ignore(
-    path: &str,
-    settings: &Settings,
-    custom_detectors: &[crate::types::CustomDetector],
-    entity_settings: &[EntitySetting],
-    mode: ScanMode,
-    ignored: Option<crate::types::IgnoredValuesSnapshot>,
-) -> Result<ScanSummary> {
-    scan_path_blocking(path, settings, custom_detectors, entity_settings, mode, ignored)
-}
-
-fn scan_path_blocking(
-    path: &str,
-    settings: &Settings,
-    custom_detectors: &[crate::types::CustomDetector],
-    entity_settings: &[EntitySetting],
-    mode: ScanMode,
-) -> Result<ScanSummary> {
-    scan_path_blocking_with_ignore(path, settings, custom_detectors, entity_settings, mode, None)
 }
 
 fn scan_path_blocking_with_ignore(
@@ -103,10 +97,10 @@ fn scan_path_blocking_with_ignore(
                 .cloned()
                 .collect();
             if !filtered_values.is_empty() {
-                matches.entry(*cat).or_default().extend(filtered_values);
+                matches.entry(cat.clone()).or_default().extend(filtered_values);
             }
         } else {
-            matches.entry(*cat).or_default().extend(values.clone());
+            matches.entry(cat.clone()).or_default().extend(values.clone());
         }
     }
     reasons.extend(file_name_matches.filename_reasons);
@@ -179,7 +173,7 @@ fn scan_path_blocking_with_ignore(
     match ext.as_str() {
         "pdf" => {
             if let Ok(text) = scan_pdf_text(p, settings.max_text_bytes) {
-                let text_matches = pii::detect_in_text(&text);
+                let text_matches = pii::detect_in_text(&text, true);
                 merge_matches(&mut matches, &text_matches, &ignored);
                 merge_custom_matches(
                     &mut custom_matches,
@@ -200,7 +194,7 @@ fn scan_path_blocking_with_ignore(
         }
         "docx" => {
             if let Ok(text) = scan_docx_text(p, settings.max_text_bytes) {
-                let text_matches = pii::detect_in_text(&text);
+                let text_matches = pii::detect_in_text(&text, true);
                 merge_matches(&mut matches, &text_matches, &ignored);
                 merge_custom_matches(
                     &mut custom_matches,
@@ -231,7 +225,7 @@ fn scan_path_blocking_with_ignore(
         _ => {
             if is_image_ext(&ext) {
                 if let Ok(text) = scan_image_with_optional_ocr(p, settings.max_text_bytes) {
-                    let text_matches = pii::detect_in_text(&text);
+                    let text_matches = pii::detect_in_text(&text, true);
                     merge_matches(&mut matches, &text_matches, &ignored);
                     merge_custom_matches(
                         &mut custom_matches,
@@ -243,7 +237,8 @@ fn scan_path_blocking_with_ignore(
             // Treat as text-like when extension matches common formats.
             else if is_text_like_ext(&ext) {
                 if let Ok(text) = read_text_prefix(p, settings.max_text_bytes) {
-                    let text_matches = pii::detect_in_text(&text);
+                    let enable_secrets = !is_technical_file_ext(&ext);
+                    let text_matches = pii::detect_in_text(&text, enable_secrets);
                     merge_matches(&mut matches, &text_matches, &ignored);
                     merge_custom_matches(
                         &mut custom_matches,
@@ -254,7 +249,7 @@ fn scan_path_blocking_with_ignore(
             } else {
                 // Best-effort: read small chunk and detect if it is text.
                 if let Ok(text) = read_text_prefix_if_probably_text(p, settings.max_text_bytes) {
-                    let text_matches = pii::detect_in_text(&text);
+                    let text_matches = pii::detect_in_text(&text, true);
                     merge_matches(&mut matches, &text_matches, &ignored);
                     merge_custom_matches(
                         &mut custom_matches,
@@ -315,15 +310,15 @@ fn merge_matches(
     }
 }
 
-fn merge_matches_no_ignore(
-    dst: &mut BTreeMap<PiiCategory, Vec<String>>,
-    src: &BTreeMap<PiiCategory, Vec<String>>,
-) {
-    merge_matches(dst, src, &None);
-}
-
-fn is_value_ignored(snapshot: &crate::types::IgnoredValuesSnapshot, cat: &PiiCategory, value: &str) -> bool {
-    let cat_str = serde_json::to_string(cat).unwrap().trim_matches('"').to_string();
+fn is_value_ignored(
+    snapshot: &crate::types::IgnoredValuesSnapshot,
+    cat: &PiiCategory,
+    value: &str,
+) -> bool {
+    let cat_str = serde_json::to_string(cat)
+        .unwrap()
+        .trim_matches('"')
+        .to_string();
     let hash = crate::user_values::UserHash::hash_value(&snapshot.salt, cat.clone(), value);
     snapshot.set.contains(&(cat_str, hash))
 }
@@ -412,8 +407,26 @@ fn format_custom_risk(level: &RiskLevel) -> &'static str {
 fn is_text_like_ext(ext: &str) -> bool {
     matches!(
         ext,
-        "txt" | "csv" | "tsv" | "json" | "ndjson" | "log" | "md" | "xml" | "yaml" | "yml" | "html"
+        "txt"
+            | "csv"
+            | "tsv"
+            | "json"
+            | "ndjson"
+            | "log"
+            | "md"
+            | "xml"
+            | "yaml"
+            | "yml"
+            | "html"
+            | "ics"
+            | "ical"
+            | "calendar"
+            | "excalidraw"
     )
+}
+
+fn is_technical_file_ext(ext: &str) -> bool {
+    matches!(ext, "ics" | "ical" | "calendar" | "excalidraw")
 }
 
 fn is_image_ext(ext: &str) -> bool {
@@ -456,7 +469,36 @@ fn scan_pdf_text(path: &Path, max_bytes: u64) -> Result<String> {
     if text.len() > max_bytes as usize {
         text.truncate(max_bytes as usize);
     }
-    Ok(text)
+    Ok(normalize_pdf_pua(text))
+}
+
+fn normalize_pdf_pua(text: String) -> String {
+    fn map_char(ch: char) -> Option<char> {
+        match ch {
+            '\u{f8eb}' => Some('⎛'),
+            '\u{f8ed}' => Some('⎝'),
+            '\u{f8ef}' => Some('⎢'),
+            '\u{f8f0}' => Some('⎣'),
+            '\u{f8f1}' => Some('⎧'),
+            '\u{f8f2}' => Some('⎨'),
+            '\u{f8f3}' => Some('⎩'),
+            '\u{f8f4}' => Some('⎪'),
+            '\u{f8f6}' => Some('⎞'),
+            '\u{f8f9}' => Some('⎤'),
+            '\u{f8fa}' => Some('⎥'),
+            '\u{f8fb}' => Some('⎦'),
+            '\u{f8fc}' => Some('⎫'),
+            '\u{f8fd}' => Some('⎬'),
+            '\u{f8fe}' => Some('⎭'),
+            _ => None,
+        }
+    }
+
+    if !text.chars().any(|c| map_char(c).is_some()) {
+        return text;
+    }
+
+    text.chars().map(|c| map_char(c).unwrap_or(c)).collect()
 }
 
 fn scan_docx_text(path: &Path, max_bytes: u64) -> Result<String> {
@@ -583,7 +625,7 @@ fn scan_workbook_xlsx<R: Read + Seek>(
                 }
             }
 
-            merge_matches(matches, &pii::detect_in_text(&text));
+            merge_matches(matches, &pii::detect_in_text(&text, true), &None);
             merge_custom_matches(
                 custom_matches,
                 &pii::detect_custom(&text, filename, custom_detectors),
@@ -628,7 +670,7 @@ fn scan_workbook_xls<R: Read + Seek>(
                 }
             }
 
-            merge_matches(matches, &pii::detect_in_text(&text));
+            merge_matches(matches, &pii::detect_in_text(&text, true), &None);
             merge_custom_matches(
                 custom_matches,
                 &pii::detect_custom(&text, filename, custom_detectors),
@@ -731,7 +773,7 @@ fn scan_zip_archive<R: Read + Seek>(
                 continue;
             }
             let text = String::from_utf8_lossy(&buf);
-            merge_matches(matches, &pii::detect_in_text(&text));
+            merge_matches(matches, &pii::detect_in_text(&text, true), &None);
             merge_custom_matches(
                 custom_matches,
                 &pii::detect_custom(&text, filename, custom_detectors),

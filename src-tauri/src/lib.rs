@@ -3,6 +3,7 @@
 mod contextual;
 mod db;
 mod pii;
+mod type_catalog;
 mod scanner;
 mod scheduler;
 mod secrets;
@@ -13,21 +14,46 @@ mod user_values;
 mod watcher;
 mod zip_inspect;
 
+#[cfg(test)]
+mod integration_dataset_tests;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use tauri::{Emitter, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::sync::Mutex;
 
 use crate::db::Db;
 use crate::settings::Settings;
 use crate::types::{AppEvent, CustomDetector, FileId, NewCustomDetector, Report, UiAlert};
+use crate::type_catalog::TypeDefinition;
+
+fn is_text_neutralizable_ext(ext: &str) -> bool {
+    matches!(
+        ext,
+        "txt"
+            | "csv"
+            | "tsv"
+            | "json"
+            | "ndjson"
+            | "log"
+            | "md"
+            | "xml"
+            | "yaml"
+            | "yml"
+            | "html"
+            | "htm"
+            | "ini"
+            | "conf"
+    )
+}
 
 #[derive(Clone)]
 struct AppState {
     db: Arc<Db>,
     settings: Arc<Mutex<Settings>>,
     watchers: Arc<Mutex<Option<watcher::WatchersCtrl>>>,
+    type_catalog: Arc<Mutex<type_catalog::TypeRegistry>>,
     scan_running: Arc<AtomicBool>,
     scan_cancel: Arc<AtomicBool>,
 }
@@ -53,11 +79,7 @@ async fn get_report(
 
     if reveal {
         let settings = state.settings.lock().await.clone();
-        let custom_detectors = state
-            .db
-            .list_enabled_custom_detectors()
-            .await
-            .map_err(|e| e.to_string())?;
+        let custom_detectors = yaml_custom_detectors(state.inner()).await;
         let entity_settings = state
             .db
             .get_entity_settings()
@@ -76,12 +98,12 @@ async fn get_report(
         let mut revealed = scan.revealed.unwrap_or_default();
         for cat in &mut revealed.by_category {
             for v in &mut cat.values {
-                let is_mine = state
+                let is_ignored = state
                     .db
                     .is_user_value(cat.category.clone(), &v.value)
                     .await
                     .unwrap_or(false);
-                v.is_mine = is_mine;
+                v.is_ignored = is_ignored;
             }
         }
         report.revealed = Some(revealed);
@@ -90,37 +112,7 @@ async fn get_report(
     Ok(report)
 }
 
-#[tauri::command]
-async fn mark_value_as_mine(
-    state: tauri::State<'_, AppState>,
-    category: crate::types::PiiCategory,
-    value: String,
-) -> Result<(), String> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
-    state
-        .db
-        .mark_user_value(category, &value, now)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn unmark_value_as_mine(
-    state: tauri::State<'_, AppState>,
-    category: crate::types::PiiCategory,
-    value: String,
-) -> Result<(), String> {
-    state
-        .db
-        .unmark_user_value(category, &value)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-// Additional ignore commands for clarity (aliasing the same functions)
+// Ignore commands for values detected in revealed findings.
 #[tauri::command]
 async fn ignore_value(
     state: tauri::State<'_, AppState>,
@@ -193,6 +185,84 @@ async fn delete_file_to_trash(
         .mark_deleted(file_id)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn neutralize_file(state: tauri::State<'_, AppState>, file_id: FileId) -> Result<i64, String> {
+    tracing::debug!(file_id, "command:neutralize_file");
+    let path = state
+        .db
+        .get_file_path(file_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let path_buf = std::path::PathBuf::from(&path);
+    let ext = path_buf
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if !is_text_neutralizable_ext(&ext) {
+        return Err(format!(
+            "Neutralize currently supports text-like files only (got .{})",
+            ext
+        ));
+    }
+
+    let mut content = std::fs::read_to_string(&path_buf)
+        .map_err(|e| format!("Failed to read file as UTF-8 text: {}", e))?;
+
+    let settings = state.settings.lock().await.clone();
+    let custom_detectors = yaml_custom_detectors(state.inner()).await;
+    let entity_settings = state
+        .db
+        .get_entity_settings()
+        .await
+        .map_err(|e| e.to_string())?;
+    let scan = scanner::scan_path_with_settings(
+        &path,
+        &settings,
+        &custom_detectors,
+        &entity_settings,
+        scanner::ScanMode::Reveal,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut replacements: Vec<(String, String)> = Vec::new();
+    if let Some(revealed) = scan.revealed {
+        for by_cat in revealed.by_category {
+            for v in by_cat.values {
+                let original = v.value.trim().to_string();
+                if original.is_empty() {
+                    continue;
+                }
+                let redacted = crate::pii::redact_value(by_cat.category.clone(), &original);
+                if redacted != original {
+                    replacements.push((original, redacted));
+                }
+            }
+        }
+    }
+
+    replacements.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    replacements.dedup_by(|a, b| a.0 == b.0);
+
+    let mut replaced_total: i64 = 0;
+    for (from, to) in replacements {
+        let count = content.matches(&from).count() as i64;
+        if count > 0 {
+            replaced_total += count;
+            content = content.replace(&from, &to);
+        }
+    }
+
+    if replaced_total > 0 {
+        std::fs::write(&path_buf, content)
+            .map_err(|e| format!("Failed to write neutralized content: {}", e))?;
+    }
+
+    Ok(replaced_total)
 }
 
 #[tauri::command]
@@ -396,12 +466,60 @@ fn emit_event<R: Runtime>(app: &tauri::AppHandle<R>, event: &AppEvent) {
     let _ = app.emit("pdd:event", event);
 }
 
+pub(crate) async fn yaml_custom_detectors(state: &AppState) -> Vec<CustomDetector> {
+    let catalog = state.type_catalog.lock().await;
+    let locale = app_locale();
+    catalog
+        .types
+        .values()
+        .filter(|def| def.enabled)
+        .filter(|def| {
+            def.locale_requirement
+                .as_deref()
+                .map(|required| type_catalog::locale_requirement_matches(required, &locale))
+                .unwrap_or(true)
+        })
+        .filter(|def| {
+            def.filename_regex
+                .as_ref()
+                .is_some_and(|v| !v.trim().is_empty())
+                || def
+                    .field_name_regex
+                    .as_ref()
+                    .is_some_and(|v| !v.trim().is_empty())
+                || def
+                    .value_regex
+                    .as_ref()
+                    .is_some_and(|v| !v.trim().is_empty())
+        })
+        .enumerate()
+        .map(|(idx, def)| CustomDetector {
+            id: idx as i64 + 1,
+            name: def.id.clone(),
+            risk_level: def.risk_level,
+            filename_regex: def.filename_regex.clone(),
+            field_name_regex: def.field_name_regex.clone(),
+            value_regex: def.value_regex.clone(),
+            enabled: true,
+            created_at: 0,
+            updated_at: 0,
+        })
+        .collect()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut log_filter =
+        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
+    if let Ok(directive) = "lopdf=error".parse() {
+        log_filter = log_filter.add_directive(directive);
+    }
+    if let Ok(directive) = "pdf_extract=error".parse() {
+        log_filter = log_filter.add_directive(directive);
+    }
+
     tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
+        .with_env_filter(log_filter)
         .init();
 
     tauri::Builder::default()
@@ -422,7 +540,6 @@ pub fn run() {
                 let db = Db::open(&app_handle).await?;
                 db.migrate().await?;
                 db.cleanup_removed_native_categories().await?;
-                db.seed_default_custom_detectors(&app_locale(), now_unix()).await?;
                 db.seed_locale_entities(&app_locale()).await?;
 
                 let settings = db
@@ -431,12 +548,27 @@ pub fn run() {
                     .unwrap_or_else(Settings::default_from_os);
                 db.save_settings(&settings).await?;
 
+                let locale = app_locale();
+                let custom_types_file = user_custom_types_file(&app_handle)
+                    .map_err(anyhow::Error::msg)?;
+                let type_catalog = match type_catalog::TypeRegistry::load(
+                    &locale,
+                    Some(custom_types_file.as_path()),
+                ) {
+                    Ok(reg) => reg,
+                    Err(e) => {
+                        tracing::warn!("Failed to load type catalog: {}", e);
+                        type_catalog::TypeRegistry { types: std::collections::HashMap::new() }
+                    }
+                };
+
                 let state = AppState {
                     db: Arc::new(db),
                     settings: Arc::new(Mutex::new(settings.clone())),
                     watchers: Arc::new(Mutex::new(None)),
                     scan_running: Arc::new(AtomicBool::new(false)),
                     scan_cancel: Arc::new(AtomicBool::new(false)),
+                    type_catalog: Arc::new(Mutex::new(type_catalog)),
                 };
 
                 app_handle.manage(state.clone());
@@ -446,6 +578,9 @@ pub fn run() {
                     .ok_or_else(|| anyhow::anyhow!("main window not found"))?;
                 if let Some(icon) = app_handle.default_window_icon().cloned() {
                     let _ = main_window.set_icon(icon);
+                } else {
+                    let fallback_icon = tauri::include_image!("icons/pdwn-logo.png");
+                    let _ = main_window.set_icon(fallback_icon);
                 }
 
                 // Try fallback window creation if needed
@@ -453,7 +588,7 @@ pub fn run() {
                 if app_handle.get_webview_window("main").is_none() {
                     tracing::warn!("window:attempting fallback window creation");
                     let _ = tauri::WebviewWindowBuilder::new(&app_handle, "main", Default::default())
-                        .title("Personal Data Detector")
+                        .title("PDWN - Personal Data Watch & Neutralize")
                         .inner_size(800.0, 600.0)
                         .build();
                 }
@@ -475,13 +610,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_alerts,
             get_report,
-            mark_value_as_mine,
-            unmark_value_as_mine,
             ignore_value,
             unignore_value,
             ignore_file,
             unignore_file,
             delete_file_to_trash,
+            neutralize_file,
             open_in_file_manager,
             get_settings,
             set_settings,
@@ -495,6 +629,9 @@ pub fn run() {
             get_entity_settings,
             update_entity_enabled,
             update_contextual_entity,
+            list_type_definitions,
+            reload_type_catalog,
+            upsert_custom_type_definition,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -542,11 +679,48 @@ async fn update_contextual_entity(
         .map_err(|e| e.to_string())
 }
 
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
+#[tauri::command]
+async fn list_type_definitions(state: tauri::State<'_, AppState>) -> Result<Vec<TypeDefinition>, String> {
+    let catalog = state.type_catalog.lock().await;
+    let mut types: Vec<TypeDefinition> = catalog.types.values().cloned().collect();
+    types.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(types)
+}
+
+#[tauri::command]
+async fn reload_type_catalog(app: AppHandle) -> Result<String, String> {
+    let locale = app_locale();
+    let custom_types_file = user_custom_types_file(&app)?;
+    match type_catalog::TypeRegistry::load(&locale, Some(custom_types_file.as_path())) {
+        Ok(new_catalog) => {
+            let app_state = app.state::<AppState>();
+            let mut catalog = app_state.type_catalog.lock().await;
+            *catalog = new_catalog;
+            Ok("Type catalog reloaded successfully".to_string())
+        }
+        Err(e) => Err(format!("Failed to reload type catalog: {}", e))
+    }
+}
+
+#[tauri::command]
+async fn upsert_custom_type_definition(
+    app: AppHandle,
+    input: TypeDefinition,
+) -> Result<String, String> {
+    if input.id.trim().is_empty() {
+        return Err("type id is required".to_string());
+    }
+    let custom_types_file = user_custom_types_file(&app)?;
+    type_catalog::upsert_custom_type(custom_types_file.as_path(), input)?;
+    reload_type_catalog(app).await
+}
+
+fn user_custom_types_file(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to resolve app config dir: {}", e))?;
+    Ok(config_dir.join("types").join("custom.yaml"))
 }
 
 fn app_locale() -> String {

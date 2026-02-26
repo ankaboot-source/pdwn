@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "personal-data-detector-desktop",
+  "productName": "PDWN",
   "version": "0.1.0",
-  "identifier": "com.badreddine.personal-data-detector-desktop",
+  "identifier": "io.pdwn.desktop",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
@@ -11,10 +11,10 @@
   },
   "app": {
     "withGlobalTauri": true,
-"windows": [
+    "windows": [
       {
         "label": "main",
-        "title": "Détecteur de données personnelles",
+        "title": "PDWN - Personal Data Watch & Neutralize",
         "width": 800,
         "height": 600
       }

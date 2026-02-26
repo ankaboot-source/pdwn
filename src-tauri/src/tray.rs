@@ -2,8 +2,7 @@ use anyhow::{Context, Result};
 use tauri::{Emitter, Manager};
 
 pub fn setup_tray(app: &tauri::AppHandle) -> Result<()> {
-    // Use the existing app icon shipped by Tauri.
-    let icon = tauri::include_image!("icons/icon.png");
+    let icon = tauri::include_image!("icons/pdwn-logo.png");
 
     let (open_label, scan_label, about_label, quit_label) = tray_labels();
 

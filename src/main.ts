@@ -7,35 +7,33 @@ import {
   sendNotification,
 } from "@tauri-apps/plugin-notification";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
+import pdwnWordmark from "../assets/pdwn-wordmark.png";
+import aboutMarkdown from "./content/about.md?raw";
+import legalMarkdown from "./content/legal.md?raw";
+import dependenciesMarkdown from "./content/third-party-notices.md?raw";
 
 import {
-  type CustomDetector,
-  type EntitySetting,
-  type NewCustomDetector,
   type Report,
   type Settings,
+  type TypeDefinition,
   type UiAlert,
   clearAlerts,
-  createCustomDetector,
-  deleteCustomDetector,
   deleteFileToTrash,
-  getEntitySettings,
   getReport,
   getSettings,
   ignoreFile,
   ignoreValue,
   listAlerts,
-  listCustomDetectors,
-  markValueAsMine,
+  listTypeDefinitions,
+  neutralizeFile,
   openInFileManager,
+  reloadTypeCatalog,
   scanNow,
   setSettings,
   stopScan,
   unignoreFile,
   unignoreValue,
-  unmarkValueAsMine,
-  updateCustomDetector,
-  updateEntityEnabled,
+  upsertCustomTypeDefinition,
 } from "./api";
 import { getLanguage, initI18n, onLanguageChanged, t } from "./i18n";
 
@@ -59,6 +57,8 @@ let appSettings: Settings | null = null;
 let selectedFileId: number | null = null;
 let selectedReport: Report | null = null;
 let showRevealed = false;
+let revealLoading = false;
+let neutralizeLoading = false;
 let reportPanelVisible = true;
 let reportLoadError: string | null = null;
 const selectedRiskFilters = new Set<UiAlert["risk_level"]>();
@@ -72,31 +72,44 @@ let scanProgress: { processed: number; total: number } | null = null;
 let menuOpen = false;
 let dialog: "about" | "types" | null = null;
 let aboutTab: "about" | "legal" = "about";
-let typesTab: "standard" | "custom" = "standard";
-let customDetectors: CustomDetector[] = [];
-let entitySettings: EntitySetting[] = [];
-let entityConfigOpen: string | null = null;
-let customFormMode: "create" | "edit" | null = null;
-let customFormId: number | null = null;
-let customFormError: string | null = null;
-let customForm: NewCustomDetector = {
-  name: "",
-  risk_level: "medium",
-  filename_regex: "",
-  field_name_regex: "",
-  value_regex: "",
-  enabled: true,
-};
+let legalDependenciesVisible = false;
+let typesTab: "standard" | "regional" | "custom" = "standard";
+let typeDefinitions: TypeDefinition[] = [];
+let typeDefinitionsLoading = false;
+let typeDefinitionsLoaded = false;
+let typeDefinitionsError: string | null = null;
+let typeModal: {
+  mode: "view" | "create" | "edit";
+  draft: TypeDefinition;
+  error: string | null;
+  saving: boolean;
+} | null = null;
+
+let debugMode = false;
+
+let confirmAction: ConfirmAction | null = null;
+
+const expandedRedacted = new Set<string>();
+let alertsListScrollTop = 0;
+
+type SortMode = "risk_desc" | "risk_asc" | "recent" | "type";
+
 type ConfirmAction =
   | { kind: "scanRunning" }
   | { kind: "stopScan" }
   | { kind: "deleteFile"; fileId: number }
-  | { kind: "deleteCustom"; detectorId: number; detectorName: string };
-let confirmAction: ConfirmAction | null = null;
-const expandedRedacted = new Set<string>();
-let debugMode = false;
+  | { kind: "neutralizeFile"; fileId: number }
+  | { kind: "clearAll" };
 
-type SortMode = "risk_desc" | "risk_asc" | "recent" | "type";
+async function onReloadTypes(): Promise<void> {
+  try {
+    await reloadTypeCatalog();
+    await refreshTypeDefinitions();
+  } catch (error) {
+    typeDefinitionsError = error instanceof Error ? error.message : String(error);
+    render();
+  }
+}
 
 function debugLog(message: string, payload?: unknown): void {
   if (payload === undefined) {
@@ -138,6 +151,26 @@ function canRevealReport(r: Report): boolean {
     (f) =>
       f.count > 0 && f.category !== "file_name_signal" && f.category !== "weak_archive_encryption",
   );
+}
+
+function canNeutralizeReport(r: Report): boolean {
+  const ext = (r.path.split(".").pop() ?? "").toLowerCase();
+  return [
+    "txt",
+    "csv",
+    "tsv",
+    "json",
+    "ndjson",
+    "log",
+    "md",
+    "xml",
+    "yaml",
+    "yml",
+    "html",
+    "htm",
+    "ini",
+    "conf",
+  ].includes(ext);
 }
 
 async function onScanNow(): Promise<void> {
@@ -343,6 +376,214 @@ function categoryLabel(cat: string): string {
   return isBuiltinCategory(cat) ? piiLabel(cat) : cat;
 }
 
+function typeDisplayName(def: TypeDefinition): string {
+  const translated = t(def.display_name_key);
+  return translated === def.display_name_key ? def.display_name_key : translated;
+}
+
+function typeDescription(def: TypeDefinition): string {
+  const translated = t(def.description_key);
+  return translated === def.description_key ? def.description_key : translated;
+}
+
+function typeCategoryLabel(cat: string): string {
+  const normalized = cat.trim().toLowerCase();
+  if (normalized === "pii") return "PII";
+  if (normalized === "security") return "Security";
+  if (normalized === "sensitive") return "Sensitive";
+  return cat;
+}
+
+function slugifyId(value: string): string {
+  const base = value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+  return base || "custom_type";
+}
+
+function uniqueTypeIdFromName(name: string): string {
+  const base = slugifyId(name);
+  if (!typeDefinitions.some((d) => d.id === base)) return base;
+  let idx = 2;
+  while (typeDefinitions.some((d) => d.id === `${base}_${idx}`)) {
+    idx += 1;
+  }
+  return `${base}_${idx}`;
+}
+
+function typeOriginLabel(origin: string): string {
+  const map: Record<string, string> = {
+    "standard/base": t("types.origin.base"),
+    "standard/locale": t("types.origin.locale"),
+    custom: t("types.origin.custom"),
+  };
+  return map[origin] ?? origin;
+}
+
+function localeParts(locale: string): { lang: string; region: string | null } {
+  const normalized = locale.trim().split(".")[0].split("@")[0].replace("_", "-").toLowerCase();
+  const [lang = "", region = ""] = normalized.split("-");
+  return { lang, region: region || null };
+}
+
+function localeRequirementMatches(requirement: string | null | undefined): boolean {
+  if (!requirement || !requirement.trim()) return true;
+  const runtimeLocale =
+    (typeof navigator !== "undefined" && navigator.language) || getLanguage() || "en";
+  const req = localeParts(requirement);
+  const cur = localeParts(runtimeLocale);
+
+  if (!req.lang || !cur.lang) return false;
+  if (req.region) {
+    return req.lang === cur.lang && req.region === cur.region;
+  }
+  if (req.lang.length === 2 && req.lang === cur.lang) return true;
+  return cur.region === req.lang;
+}
+
+function currentRuntimeLocale(): string {
+  const locale = (typeof navigator !== "undefined" && navigator.language) || getLanguage() || "en";
+  return locale.replace("_", "-");
+}
+
+function typesForTab(tab: "standard" | "regional" | "custom"): TypeDefinition[] {
+  if (tab === "standard") {
+    return typeDefinitions.filter((d) => d.origin === "standard/base" && !d.locale_requirement);
+  }
+  if (tab === "regional") {
+    return typeDefinitions.filter(
+      (d) =>
+        (d.origin === "standard/locale" || Boolean(d.locale_requirement)) &&
+        localeRequirementMatches(d.locale_requirement),
+    );
+  }
+  return typeDefinitions.filter((d) => d.origin === "custom");
+}
+
+function emptyTypeDraft(): TypeDefinition {
+  return {
+    id: "",
+    display_name_key: "",
+    description_key: "",
+    category: "pii",
+    risk_level: "medium",
+    requires_key: false,
+    key_labels: [],
+    advanced: { blocked_extensions: [], filename_keywords: [] },
+    enabled: true,
+    locale_requirement: null,
+    positive_indicators: null,
+    negative_indicators: null,
+    threshold: null,
+    origin: "custom",
+    filename_regex: null,
+    field_name_regex: null,
+    value_regex: null,
+  };
+}
+
+function cloneTypeDefinition(def: TypeDefinition): TypeDefinition {
+  return {
+    ...def,
+    key_labels: [...(def.key_labels ?? [])],
+    advanced: {
+      blocked_extensions: [...(def.advanced?.blocked_extensions ?? [])],
+      filename_keywords: [...(def.advanced?.filename_keywords ?? [])],
+    },
+  };
+}
+
+function openCreateTypeModal(): void {
+  typeModal = {
+    mode: "create",
+    draft: emptyTypeDraft(),
+    error: null,
+    saving: false,
+  };
+  render();
+}
+
+function openViewTypeModal(def: TypeDefinition): void {
+  typeModal = {
+    mode: def.origin === "custom" ? "edit" : "view",
+    draft: cloneTypeDefinition(def),
+    error: null,
+    saving: false,
+  };
+  render();
+}
+
+function closeTypeModal(): void {
+  typeModal = null;
+  render();
+}
+
+function parseCsv(input: string): string[] {
+  return input
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+function parseFilenameKeywords(input: string): TypeDefinition["advanced"]["filename_keywords"] {
+  const out: TypeDefinition["advanced"]["filename_keywords"] = [];
+  for (const part of input
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)) {
+    const [keyword, scoreRaw] = part.split(":").map((s) => s.trim());
+    if (!keyword) continue;
+    const score = Number(scoreRaw);
+    out.push({ keyword, score: Number.isFinite(score) ? score : 5 });
+  }
+  return out;
+}
+
+async function onSaveCustomType(): Promise<void> {
+  if (!typeModal || (typeModal.mode !== "create" && typeModal.mode !== "edit")) return;
+
+  const displayName = typeModal.draft.display_name_key.trim();
+  const description = typeModal.draft.description_key.trim();
+  if (!displayName || !description) {
+    typeModal.error = "Name and description are required.";
+    render();
+    return;
+  }
+
+  if (typeModal.mode === "create") {
+    typeModal.draft.id = uniqueTypeIdFromName(displayName);
+  }
+  typeModal.draft.requires_key = typeModal.draft.key_labels.length > 0;
+  typeModal.draft.enabled = true;
+
+  const threshold = typeModal.draft.threshold;
+  if (threshold !== null && (threshold < 0 || threshold > 1)) {
+    typeModal.error = "Threshold must be between 0 and 1.";
+    render();
+    return;
+  }
+
+  typeModal.error = null;
+  typeModal.saving = true;
+  render();
+
+  try {
+    await upsertCustomTypeDefinition({ ...typeModal.draft, origin: "custom" });
+    await refreshTypeDefinitions();
+    typeModal = null;
+    typesTab = "custom";
+  } catch (error) {
+    if (typeModal) {
+      typeModal.error = error instanceof Error ? error.message : String(error);
+      typeModal.saving = false;
+    }
+  }
+  render();
+}
+
 const RISK_FILTER_OPTIONS: UiAlert["risk_level"][] = ["critical", "high", "medium", "low"];
 const BUILTIN_TYPE_FILTER_OPTIONS: string[] = [
   "email",
@@ -455,6 +696,139 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   return node;
 }
 
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatInlineMarkdown(text: string): string {
+  let out = escapeHtml(text);
+  out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
+  out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  out = out.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  out = out.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noreferrer">$1</a>',
+  );
+  return out;
+}
+
+function markdownToHtml(markdown: string): string {
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  let html = "";
+  let inUl = false;
+  let inOl = false;
+  let inCode = false;
+  let paragraph: string[] = [];
+
+  const flushParagraph = () => {
+    if (paragraph.length > 0) {
+      html += `<p>${formatInlineMarkdown(paragraph.join(" "))}</p>`;
+      paragraph = [];
+    }
+  };
+  const closeLists = () => {
+    if (inUl) {
+      html += "</ul>";
+      inUl = false;
+    }
+    if (inOl) {
+      html += "</ol>";
+      inOl = false;
+    }
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith("```")) {
+      flushParagraph();
+      closeLists();
+      html += inCode ? "</code></pre>" : "<pre><code>";
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) {
+      html += `${escapeHtml(rawLine)}\n`;
+      continue;
+    }
+
+    if (!trimmed) {
+      flushParagraph();
+      closeLists();
+      continue;
+    }
+
+    const heading = trimmed.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      closeLists();
+      const level = heading[1].length;
+      html += `<h${level}>${formatInlineMarkdown(heading[2])}</h${level}>`;
+      continue;
+    }
+
+    const ulItem = trimmed.match(/^[-*]\s+(.+)$/);
+    if (ulItem) {
+      flushParagraph();
+      if (inOl) {
+        html += "</ol>";
+        inOl = false;
+      }
+      if (!inUl) {
+        html += "<ul>";
+        inUl = true;
+      }
+      html += `<li>${formatInlineMarkdown(ulItem[1])}</li>`;
+      continue;
+    }
+
+    const olItem = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (olItem) {
+      flushParagraph();
+      if (inUl) {
+        html += "</ul>";
+        inUl = false;
+      }
+      if (!inOl) {
+        html += "<ol>";
+        inOl = true;
+      }
+      html += `<li>${formatInlineMarkdown(olItem[1])}</li>`;
+      continue;
+    }
+
+    paragraph.push(trimmed);
+  }
+
+  flushParagraph();
+  closeLists();
+  if (inCode) html += "</code></pre>";
+  return html;
+}
+
+function renderMarkdownBlock(markdown: string, className = "markdown-content"): HTMLElement {
+  const block = el("div", className);
+  block.innerHTML = markdownToHtml(markdown);
+  for (const anchor of block.querySelectorAll("a[href]")) {
+    anchor.addEventListener("click", (event) => {
+      event.preventDefault();
+      const href = (anchor as HTMLAnchorElement).href;
+      void openPath(href);
+    });
+  }
+  return block;
+}
+
+async function openAgplLicense(): Promise<void> {
+  await openPath("https://www.gnu.org/licenses/agpl-3.0.html");
+}
+
 async function refreshAlerts(): Promise<void> {
   debugLog("refreshAlerts:start");
   alerts = await listAlerts();
@@ -478,31 +852,22 @@ async function refreshSettings(): Promise<void> {
   render();
 }
 
-async function refreshCustomDetectors(): Promise<void> {
-  try {
-    customDetectors = await listCustomDetectors();
-  } catch {
-    customDetectors = [];
-  }
+async function refreshTypeDefinitions(): Promise<void> {
+  if (typeDefinitionsLoading) return;
+  typeDefinitionsLoading = true;
+  typeDefinitionsError = null;
   render();
-}
-
-async function refreshEntitySettings(): Promise<void> {
   try {
-    entitySettings = await getEntitySettings();
-  } catch {
-    entitySettings = [];
-  }
-  render();
-}
-
-async function toggleEntityEnabled(entityType: string, enabled: boolean): Promise<void> {
-  try {
-    await updateEntityEnabled(entityType, enabled);
-    await refreshEntitySettings();
+    typeDefinitions = await listTypeDefinitions();
+    typeDefinitionsLoaded = true;
   } catch (error) {
-    console.error("Failed to update entity:", error);
+    typeDefinitions = [];
+    typeDefinitionsLoaded = false;
+    typeDefinitionsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    typeDefinitionsLoading = false;
   }
+  render();
 }
 
 async function selectFile(fileId: number): Promise<void> {
@@ -510,6 +875,8 @@ async function selectFile(fileId: number): Promise<void> {
   reportPanelVisible = true;
   selectedFileId = fileId;
   showRevealed = false;
+  revealLoading = false;
+  neutralizeLoading = false;
   expandedRedacted.clear();
   reportLoadError = null;
   try {
@@ -524,6 +891,11 @@ async function selectFile(fileId: number): Promise<void> {
 
 async function toggleReveal(): Promise<void> {
   if (!selectedFileId) return;
+  if (revealLoading) return;
+
+  revealLoading = true;
+  render();
+
   if (!showRevealed) {
     try {
       selectedReport = await getReport(selectedFileId, true);
@@ -543,12 +915,19 @@ async function toggleReveal(): Promise<void> {
       reportLoadError = error instanceof Error ? error.message : String(error);
     }
   }
+  revealLoading = false;
   render();
 }
 
 async function onDelete(): Promise<void> {
   if (!selectedFileId) return;
   confirmAction = { kind: "deleteFile", fileId: selectedFileId };
+  render();
+}
+
+async function onNeutralize(): Promise<void> {
+  if (!selectedFileId || neutralizeLoading) return;
+  confirmAction = { kind: "neutralizeFile", fileId: selectedFileId };
   render();
 }
 
@@ -562,60 +941,6 @@ async function onIgnoreToggle(): Promise<void> {
     await ignoreFile(selectedFileId);
   }
   await refreshAlerts();
-}
-
-function toDetectorInput(base?: CustomDetector): NewCustomDetector {
-  return {
-    name: base?.name ?? "",
-    risk_level: base?.risk_level ?? "medium",
-    filename_regex: base?.filename_regex ?? "",
-    field_name_regex: base?.field_name_regex ?? "",
-    value_regex: base?.value_regex ?? "",
-    enabled: base?.enabled ?? true,
-  };
-}
-
-function openCreateCustomForm(): void {
-  customFormMode = "create";
-  customFormId = null;
-  customFormError = null;
-  customForm = toDetectorInput();
-  render();
-}
-
-function openEditCustomForm(det: CustomDetector): void {
-  customFormMode = "edit";
-  customFormId = det.id;
-  customFormError = null;
-  customForm = toDetectorInput(det);
-  render();
-}
-
-function closeCustomForm(): void {
-  customFormMode = null;
-  customFormId = null;
-  customFormError = null;
-  customForm = toDetectorInput();
-}
-
-async function submitCustomForm(): Promise<void> {
-  try {
-    if (customFormMode === "create") {
-      await createCustomDetector(customForm);
-    } else if (customFormMode === "edit" && customFormId !== null) {
-      await updateCustomDetector(customFormId, customForm);
-    }
-    closeCustomForm();
-    await refreshCustomDetectors();
-  } catch (error) {
-    customFormError = error instanceof Error ? error.message : String(error);
-    render();
-  }
-}
-
-async function onDeleteCustomDetector(det: CustomDetector): Promise<void> {
-  confirmAction = { kind: "deleteCustom", detectorId: det.id, detectorName: det.name };
-  render();
 }
 
 async function onConfirmAction(): Promise<void> {
@@ -635,15 +960,52 @@ async function onConfirmAction(): Promise<void> {
     await refreshAlerts();
     return;
   }
-  await deleteCustomDetector(action.detectorId);
-  await refreshCustomDetectors();
+  if (action.kind === "neutralizeFile") {
+    neutralizeLoading = true;
+    render();
+    try {
+      await neutralizeFile(action.fileId);
+      await refreshAlerts();
+      if (selectedFileId === action.fileId) {
+        selectedReport = await getReport(action.fileId, false);
+        showRevealed = false;
+        expandedRedacted.clear();
+      }
+    } catch (error) {
+      reportLoadError = error instanceof Error ? error.message : String(error);
+    } finally {
+      neutralizeLoading = false;
+      render();
+    }
+    return;
+  }
+  if (action.kind === "clearAll") {
+    await clearAlerts();
+    await refreshAlerts();
+    return;
+  }
 }
 
 function render(): void {
+  const prevList = appEl.querySelector<HTMLDivElement>(".alert-list");
+  if (prevList) {
+    alertsListScrollTop = prevList.scrollTop;
+  }
+  const active = document.activeElement as HTMLElement | null;
+  const focusedAlertId =
+    active?.classList.contains("alert-item") && active.dataset.fileId
+      ? active.dataset.fileId
+      : null;
+
   const root = el("div", "app");
 
   const header = el("header", "top");
   const brand = el("div", "brand");
+  const wordmark = document.createElement("img");
+  wordmark.className = "brand-wordmark";
+  wordmark.src = pdwnWordmark;
+  wordmark.alt = "PDWN";
+  brand.append(wordmark);
   brand.append(el("div", "brand-tagline", t("app.tagline")));
   header.append(brand);
 
@@ -685,6 +1047,7 @@ function render(): void {
     aboutBtn.addEventListener("click", () => {
       dialog = "about";
       aboutTab = "about";
+      legalDependenciesVisible = false;
       menuOpen = false;
       render();
     });
@@ -692,12 +1055,22 @@ function render(): void {
     const customBtn = el("button", "menu-item", t("menu.types"));
     customBtn.addEventListener("click", () => {
       dialog = "types";
-      typesTab = "standard";
+      typesTab = "custom";
       menuOpen = false;
-      void refreshCustomDetectors();
+      if (!typeDefinitionsLoaded && !typeDefinitionsLoading) {
+        void refreshTypeDefinitions();
+      }
       render();
     });
     menu.append(customBtn);
+
+    const clearBtn = el("button", "menu-item", t("menu.clearAll"));
+    clearBtn.addEventListener("click", async () => {
+      confirmAction = { kind: "clearAll" };
+      menuOpen = false;
+      render();
+    });
+    menu.append(clearBtn);
     controls.append(menu);
   }
   header.append(controls);
@@ -885,6 +1258,7 @@ function render(): void {
   } else {
     for (const a of visible) {
       const item = el("button", "alert-item");
+      item.dataset.fileId = String(a.file_id);
       if (a.file_id === selectedFileId) item.dataset.selected = "true";
       if (a.ignored) item.dataset.ignored = "true";
 
@@ -918,6 +1292,7 @@ function render(): void {
       reportPanelVisible = false;
       selectedReport = null;
       showRevealed = false;
+      neutralizeLoading = false;
       reportLoadError = null;
       expandedRedacted.clear();
       render();
@@ -931,13 +1306,16 @@ function render(): void {
       body.append(el("div", "empty", t("report.select")));
     } else {
       const r = selectedReport;
-      const kv = el("div", "kv");
-      kv.append(kvRow(t("report.fileName"), fileNameFromPath(r.path)));
-      kv.append(kvRow(t("report.path"), r.path));
-      kv.append(kvRow(t("report.size"), fmtBytes(r.size)));
-      kv.append(kvRow(t("report.modified"), fmtDate(r.mtime)));
-      kv.append(kvRow(t("alerts.risk"), `${riskLabel(r.risk_level)} (${r.risk_score})`));
-      body.append(kv);
+      const meta = el("div", "report-meta");
+      const metaLeft = el("div", "report-meta-left");
+      metaLeft.append(kvRow(t("report.fileName"), fileNameFromPath(r.path), "kv-row-file"));
+      metaLeft.append(kvRow(t("report.path"), r.path, "kv-row-path"));
+      const metaRight = el("div", "report-meta-right");
+      metaRight.append(kvRow(t("alerts.risk"), `${riskLabel(r.risk_level)} (${r.risk_score})`));
+      metaRight.append(kvRow(t("report.size"), fmtBytes(r.size)));
+      metaRight.append(kvRow(t("report.modified"), fmtDate(r.mtime)));
+      meta.append(metaLeft, metaRight);
+      body.append(meta);
 
       if (r.weak_zip_encryption) {
         const warn = el("div", "warn");
@@ -1011,14 +1389,35 @@ function render(): void {
       const revealBtn = el(
         "button",
         "btn",
-        withIcon(showRevealed ? "🙈" : "👁", t(showRevealed ? "actions.hide" : "actions.reveal")),
+        revealLoading
+          ? t(showRevealed ? "actions.hide" : "actions.reveal")
+          : withIcon(
+              showRevealed ? "🙈" : "👁",
+              t(showRevealed ? "actions.hide" : "actions.reveal"),
+            ),
       );
-      (revealBtn as HTMLButtonElement).disabled = !revealAllowed;
+      if (revealLoading) {
+        revealBtn.prepend(el("span", "spinner"));
+      }
+      (revealBtn as HTMLButtonElement).disabled = !revealAllowed || revealLoading;
       revealBtn.addEventListener("click", () => void toggleReveal());
       actions.append(revealBtn);
       if (!revealAllowed) {
         body.append(el("div", "empty", t("report.revealUnavailable")));
       }
+
+      const neutralizeBtn = el(
+        "button",
+        "btn danger",
+        neutralizeLoading ? t("actions.neutralize") : withIcon("🧼", t("actions.neutralize")),
+      );
+      const neutralizeAllowed = canNeutralizeReport(r);
+      if (neutralizeLoading) {
+        neutralizeBtn.prepend(el("span", "spinner"));
+      }
+      (neutralizeBtn as HTMLButtonElement).disabled = neutralizeLoading || !neutralizeAllowed;
+      neutralizeBtn.addEventListener("click", () => void onNeutralize());
+      actions.append(neutralizeBtn);
 
       const deleteBtn = el("button", "btn danger", withIcon("🗑", t("actions.delete")));
       deleteBtn.addEventListener("click", () => void onDelete());
@@ -1055,6 +1454,7 @@ function render(): void {
       );
       tAbout.addEventListener("click", () => {
         aboutTab = "about";
+        legalDependenciesVisible = false;
         render();
       });
       tabs.append(tAbout);
@@ -1070,23 +1470,38 @@ function render(): void {
       tabs.append(tLegal);
       body.append(tabs);
       if (aboutTab === "about") {
-        body.append(el("p", "", t("about.description")));
-        body.append(el("p", "", `${t("about.authorLabel")} ${t("about.author")}`));
+        body.append(renderMarkdownBlock(aboutMarkdown));
       } else {
-        body.append(el("p", "", t("about.legalText")));
+        const actions = el("div", "legal-actions");
+        const agplBtn = el("button", "btn btn-mini", withIcon("↗", t("about.openAgplLink")));
+        agplBtn.addEventListener("click", () => void openAgplLicense());
+        actions.append(agplBtn);
+
+        const depsBtn = el(
+          "button",
+          "btn btn-mini",
+          withIcon(
+            "📦",
+            t(legalDependenciesVisible ? "about.hideDependencies" : "about.showDependencies"),
+          ),
+        );
+        depsBtn.addEventListener("click", () => {
+          legalDependenciesVisible = !legalDependenciesVisible;
+          render();
+        });
+        actions.append(depsBtn);
+        body.append(renderMarkdownBlock(legalMarkdown));
+
+        if (legalDependenciesVisible) {
+          body.append(el("h4", "entity-section-title", t("about.dependenciesTitle")));
+          body.append(
+            renderMarkdownBlock(dependenciesMarkdown, "markdown-content dependencies-content"),
+          );
+        }
+        body.append(actions);
       }
     } else if (dialog === "types") {
       const tabs = el("div", "dialog-tabs");
-      const tStandard = el(
-        "button",
-        `btn btn-mini ${typesTab === "standard" ? "active-tab" : ""}`,
-        t("types.standardTab"),
-      );
-      tStandard.addEventListener("click", () => {
-        typesTab = "standard";
-        render();
-      });
-      tabs.append(tStandard);
       const tCustom = el(
         "button",
         `btn btn-mini ${typesTab === "custom" ? "active-tab" : ""}`,
@@ -1097,322 +1512,105 @@ function render(): void {
         render();
       });
       tabs.append(tCustom);
-      body.append(tabs);
 
-      if (typesTab === "standard") {
-        // Load entity settings if not already loaded
-        if (entitySettings.length === 0) {
-          void refreshEntitySettings();
-        }
+      const tRegional = el(
+        "button",
+        `btn btn-mini ${typesTab === "regional" ? "active-tab" : ""}`,
+        t("types.regionalTab"),
+      );
+      tRegional.addEventListener("click", () => {
+        typesTab = "regional";
+        render();
+      });
+      tabs.append(tRegional);
 
-        // Separate pure and contextual entities
-        const pureEntities = entitySettings.filter((e) => e.entity_category === "pure");
-        const contextualEntities = entitySettings.filter((e) => e.entity_category === "contextual");
+      const tStandard = el(
+        "button",
+        `btn btn-mini ${typesTab === "standard" ? "active-tab" : ""}`,
+        t("types.standardTab"),
+      );
+      tStandard.addEventListener("click", () => {
+        typesTab = "standard";
+        render();
+      });
+      tabs.append(tStandard);
 
-        // Pure Entities Section
-        if (pureEntities.length > 0) {
-          body.append(el("h4", "entity-section-title", t("entities.pureTitle")));
-          const pureList = el("div", "entity-list");
+      const typesToolbar = el("div", "types-toolbar");
+      typesToolbar.append(tabs);
+      const typesActions = el("div", "types-actions");
+      if (typesTab === "regional") {
+        const localeBadge = el(
+          "span",
+          "locale-badge types-locale-badge",
+          t("types.activeLocale", { locale: currentRuntimeLocale() }),
+        );
+        typesActions.append(localeBadge);
+      }
+      const reloadBtn = el("button", "btn btn-mini", withIcon("⟳", t("types.reloadBtn")));
+      reloadBtn.addEventListener("click", () => void onReloadTypes());
+      typesActions.append(reloadBtn);
+      if (typesTab === "custom") {
+        const addTypeBtn = el("button", "btn btn-mini", withIcon("＋", t("custom.add")));
+        addTypeBtn.addEventListener("click", () => openCreateTypeModal());
+        typesActions.append(addTypeBtn);
+      }
+      typesToolbar.append(typesActions);
+      body.append(typesToolbar);
 
-          for (const entity of pureEntities) {
-            const row = el("div", "entity-row");
+      if (!typeDefinitionsLoaded && !typeDefinitionsLoading && !typeDefinitionsError) {
+        void refreshTypeDefinitions();
+      }
 
-            // Enable/disable toggle
-            const toggle = el(
-              "button",
-              `mini ${entity.enabled ? "enabled" : "disabled"}`,
-              entity.enabled ? "✓" : "○",
-            );
-            toggle.addEventListener(
-              "click",
-              () => void toggleEntityEnabled(entity.entity_type, !entity.enabled),
-            );
-            row.append(toggle);
-
-            // Entity info
-            const info = el("div", "entity-info");
-            const name = el(
-              "div",
-              "entity-name",
-              t(`entities.types.${entity.entity_type}`) || entity.entity_type,
-            );
-            info.append(name);
-
-            const desc = el(
-              "div",
-              "entity-desc",
-              t(`entities.descriptions.${entity.entity_type}`) || "",
-            );
-            info.append(desc);
-
-            // Locale badge if applicable
-            if (entity.locale_requirement) {
-              const badge = el("span", "locale-badge", t("entities.localeBadge"));
-              info.append(badge);
-            }
-
-            row.append(info);
-            pureList.append(row);
-          }
-          body.append(pureList);
-        }
-
-        // Contextual Entities Section
-        if (contextualEntities.length > 0) {
-          body.append(el("h4", "entity-section-title", t("entities.contextualTitle")));
-          const contextualList = el("div", "entity-list");
-
-          for (const entity of contextualEntities) {
-            const row = el("div", "entity-row");
-
-            // Enable/disable toggle
-            const toggle = el(
-              "button",
-              `mini ${entity.enabled ? "enabled" : "disabled"}`,
-              entity.enabled ? "✓" : "○",
-            );
-            toggle.addEventListener(
-              "click",
-              () => void toggleEntityEnabled(entity.entity_type, !entity.enabled),
-            );
-            row.append(toggle);
-
-            // Entity info
-            const info = el("div", "entity-info");
-            const name = el(
-              "div",
-              "entity-name",
-              t(`entities.types.${entity.entity_type}`) || entity.entity_type,
-            );
-            info.append(name);
-
-            const desc = el(
-              "div",
-              "entity-desc",
-              t(`entities.descriptions.${entity.entity_type}`) || "",
-            );
-            info.append(desc);
-
-            // Threshold info
-            if (entity.threshold) {
-              const threshold = el(
-                "div",
-                "entity-threshold",
-                `≥ ${Math.round(entity.threshold * 100)}% confidence`,
-              );
-              info.append(threshold);
-            }
-
-            // Configure button
-            const configBtn = el("button", "mini", t("entities.configure"));
-            configBtn.addEventListener("click", () => {
-              entityConfigOpen =
-                entityConfigOpen === entity.entity_type ? null : entity.entity_type;
-              render();
-            });
-            row.append(configBtn);
-
-            contextualList.append(row);
-
-            // Configuration panel (if open)
-            if (entityConfigOpen === entity.entity_type) {
-              const configPanel = el("div", "entity-config-panel");
-
-              // Positive indicators
-              configPanel.append(el("label", "config-label", t("entities.positiveIndicators")));
-              const posInput = document.createElement("input");
-              posInput.className = "config-input";
-              posInput.value = entity.positive_indicators || "";
-              posInput.placeholder = "word1, word2, word3...";
-              configPanel.append(posInput);
-
-              // Negative indicators
-              configPanel.append(el("label", "config-label", t("entities.negativeIndicators")));
-              const negInput = document.createElement("input");
-              negInput.className = "config-input";
-              negInput.value = entity.negative_indicators || "";
-              negInput.placeholder = "word1, word2, word3...";
-              configPanel.append(negInput);
-
-              // Threshold slider
-              configPanel.append(el("label", "config-label", t("entities.threshold")));
-              const thresholdContainer = el("div", "threshold-container");
-              const thresholdValue = entity.threshold || 0.75;
-              const thresholdSlider = document.createElement("input");
-              thresholdSlider.type = "range";
-              thresholdSlider.min = "0.5";
-              thresholdSlider.max = "0.95";
-              thresholdSlider.step = "0.05";
-              thresholdSlider.value = thresholdValue.toString();
-              thresholdSlider.className = "threshold-slider";
-              thresholdContainer.append(thresholdSlider);
-              const thresholdDisplay = el(
-                "span",
-                "threshold-display",
-                `${Math.round(thresholdValue * 100)}%`,
-              );
-              thresholdSlider.addEventListener("input", () => {
-                thresholdDisplay.textContent = `${Math.round(Number.parseFloat(thresholdSlider.value) * 100)}%`;
-              });
-              thresholdContainer.append(thresholdDisplay);
-              configPanel.append(thresholdContainer);
-
-              // Action buttons
-              const actions = el("div", "config-actions");
-              const saveBtn = el("button", "btn", t("common.confirm"));
-              saveBtn.addEventListener("click", async () => {
-                try {
-                  const { updateContextualEntity } = await import("./api");
-                  await updateContextualEntity(
-                    entity.entity_type,
-                    posInput.value || null,
-                    negInput.value || null,
-                    Number.parseFloat(thresholdSlider.value),
-                  );
-                  entityConfigOpen = null;
-                  await refreshEntitySettings();
-                } catch (error) {
-                  console.error("Failed to update entity:", error);
-                }
-              });
-              actions.append(saveBtn);
-
-              const cancelBtn = el("button", "btn", t("common.cancel"));
-              cancelBtn.addEventListener("click", () => {
-                entityConfigOpen = null;
-                render();
-              });
-              actions.append(cancelBtn);
-              configPanel.append(actions);
-
-              contextualList.append(configPanel);
-            }
-          }
-          body.append(contextualList);
-        }
+      if (typeDefinitionsLoading) {
+        body.append(el("div", "empty", t("types.loading")));
+      } else if (typeDefinitionsError) {
+        body.append(el("div", "warn", t("types.reloadError", { error: typeDefinitionsError })));
       } else {
-        const add = el("button", "btn", withIcon("＋", t("custom.add")));
-        add.addEventListener("click", () => openCreateCustomForm());
-        body.append(add);
+        const scopedTypes = typesForTab(typesTab);
+        const titleKeyByTab: Record<typeof typesTab, string> = {
+          standard: "types.standardTypesTitle",
+          regional: "types.regionalTypesTitle",
+          custom: "types.customTab",
+        };
+        const emptyKeyByTab: Record<typeof typesTab, string> = {
+          standard: "types.empty",
+          regional: "types.empty",
+          custom: "custom.empty",
+        };
 
-        if (customFormMode) {
-          const form = el("div", "custom-form");
-          form.append(el("label", "custom-label", t("custom.namePrompt")));
-          const nameInput = document.createElement("input");
-          nameInput.className = "custom-input";
-          nameInput.value = customForm.name;
-          nameInput.addEventListener("input", () => {
-            customForm.name = nameInput.value;
-          });
-          form.append(nameInput);
-
-          form.append(el("label", "custom-label", t("custom.riskPrompt")));
-          const riskSelect = document.createElement("select");
-          riskSelect.className = "custom-input";
-          for (const level of ["low", "medium", "high", "critical"]) {
-            const opt = document.createElement("option");
-            opt.value = level;
-            opt.textContent = riskLabel(level as UiAlert["risk_level"]);
-            if (customForm.risk_level === level) opt.selected = true;
-            riskSelect.append(opt);
-          }
-          riskSelect.addEventListener("change", () => {
-            customForm.risk_level = riskSelect.value as NewCustomDetector["risk_level"];
-          });
-          form.append(riskSelect);
-
-          form.append(el("label", "custom-label", t("custom.filenamePrompt")));
-          const fInput = document.createElement("input");
-          fInput.className = "custom-input";
-          fInput.value = customForm.filename_regex ?? "";
-          fInput.addEventListener("input", () => {
-            customForm.filename_regex = fInput.value;
-          });
-          form.append(fInput);
-
-          form.append(el("label", "custom-label", t("custom.fieldPrompt")));
-          const kInput = document.createElement("input");
-          kInput.className = "custom-input";
-          kInput.value = customForm.field_name_regex ?? "";
-          kInput.addEventListener("input", () => {
-            customForm.field_name_regex = kInput.value;
-          });
-          form.append(kInput);
-
-          form.append(el("label", "custom-label", t("custom.valuePrompt")));
-          const vInput = document.createElement("input");
-          vInput.className = "custom-input";
-          vInput.value = customForm.value_regex ?? "";
-          vInput.addEventListener("input", () => {
-            customForm.value_regex = vInput.value;
-          });
-          form.append(vInput);
-
-          if (customFormError) {
-            form.append(el("div", "warn", customFormError));
-          }
-          const formActions = el("div", "actions");
-          const saveBtn = el("button", "btn", t("common.confirm"));
-          saveBtn.addEventListener("click", () => void submitCustomForm());
-          formActions.append(saveBtn);
-          const cancelBtn = el("button", "btn", t("common.cancel"));
-          cancelBtn.addEventListener("click", () => {
-            closeCustomForm();
-            render();
-          });
-          formActions.append(cancelBtn);
-          form.append(formActions);
-          body.append(form);
+        const sectionHead = el("div", "types-section-head");
+        sectionHead.append(el("h4", "entity-section-title", t(titleKeyByTab[typesTab])));
+        if (typesTab === "standard") {
+          sectionHead.append(el("span", "readonly-badge", t("types.readOnly")));
         }
+        body.append(sectionHead);
 
-        const list = el("div", "custom-list");
-        if (customDetectors.length === 0) {
-          list.append(el("div", "empty", t("custom.empty")));
+        if (scopedTypes.length === 0) {
+          body.append(el("div", "empty", t(emptyKeyByTab[typesTab])));
         } else {
-          for (const det of customDetectors) {
-            const row = el("div", "custom-row");
-            const label = el("div", "custom-name", det.name);
-            row.append(label);
-            const meta = el(
+          const typeList = el("div", "type-list");
+          const sortedTypes = [...scopedTypes].sort((a, b) => {
+            const nameA = typeDisplayName(a);
+            const nameB = typeDisplayName(b);
+            return nameA.localeCompare(nameB);
+          });
+
+          for (const def of sortedTypes) {
+            const row = el("button", "type-row") as HTMLButtonElement;
+            row.type = "button";
+            const name = el("div", "type-row-name", typeDisplayName(def));
+            const summary = el(
               "div",
-              "custom-meta",
-              [
-                `${t("custom.metaRisk")}: ${riskLabel(det.risk_level)}`,
-                det.filename_regex ? t("custom.metaFilename") : "",
-                det.field_name_regex ? t("custom.metaField") : "",
-                det.value_regex ? t("custom.metaValue") : "",
-              ]
-                .filter(Boolean)
-                .join(" / ") || "-",
+              "type-row-summary",
+              `${typeCategoryLabel(def.category)} • ${riskLabel(def.risk_level as UiAlert["risk_level"])} • ${typeOriginLabel(def.origin)}`,
             );
-            row.append(meta);
-            const toggle = el(
-              "button",
-              "mini",
-              det.enabled ? t("custom.disable") : t("custom.enable"),
-            );
-            toggle.addEventListener("click", async () => {
-              await updateCustomDetector(det.id, {
-                name: det.name,
-                risk_level: det.risk_level,
-                filename_regex: det.filename_regex,
-                field_name_regex: det.field_name_regex,
-                value_regex: det.value_regex,
-                enabled: !det.enabled,
-              });
-              await refreshCustomDetectors();
-            });
-            row.append(toggle);
-            const edit = el("button", "mini", t("custom.edit"));
-            edit.addEventListener("click", () => openEditCustomForm(det));
-            row.append(edit);
-            const del = el("button", "mini", t("custom.delete"));
-            del.addEventListener("click", () => void onDeleteCustomDetector(det));
-            row.append(del);
-            list.append(row);
+            row.append(name);
+            row.append(summary);
+            row.addEventListener("click", () => openViewTypeModal(def));
+            typeList.append(row);
           }
+          body.append(typeList);
         }
-        body.append(list);
       }
     }
     card.append(body);
@@ -1440,11 +1638,13 @@ function render(): void {
       message = t("actions.scanRunningChoices");
     } else if (confirmAction.kind === "deleteFile") {
       message = t("confirmations.deleteBody");
+    } else if (confirmAction.kind === "neutralizeFile") {
+      message = t("confirmations.neutralizeBody");
     } else {
-      message = t("custom.deleteConfirm", { name: confirmAction.detectorName });
+      message = t("confirmations.clearBody");
     }
     body.append(el("p", "", message));
-    const actions = el("div", "actions");
+    const actions = el("div", "actions type-form-actions");
     if (confirmAction.kind === "scanRunning") {
       const stop = el("button", "btn danger", t("actions.stopScan"));
       stop.addEventListener("click", async () => {
@@ -1485,11 +1685,319 @@ function render(): void {
     root.append(overlay);
   }
 
+  if (typeModal) {
+    const overlay = el("div", "overlay");
+    const card = el("div", "dialog type-detail-dialog");
+    const head = el("div", "dialog-head");
+    head.append(
+      el(
+        "h3",
+        "dialog-title",
+        typeModal.mode === "create"
+          ? t("custom.add")
+          : typeModal.mode === "edit"
+            ? `${t("custom.edit")}: ${typeDisplayName(typeModal.draft)}`
+            : typeDisplayName(typeModal.draft),
+      ),
+    );
+    const closeBtn = el("button", "btn btn-mini", t("common.close"));
+    closeBtn.addEventListener("click", () => closeTypeModal());
+    head.append(closeBtn);
+    card.append(head);
+
+    const body = el("div", "dialog-body");
+    const form = el("div", "type-form");
+    const editable = typeModal.mode !== "view";
+
+    const labelWithTip = (labelText: string, tip: string): HTMLElement => {
+      const label = el("label", "custom-label");
+      label.append(el("span", "", labelText));
+      const tipEl = el("span", "field-tip", "?");
+      tipEl.setAttribute("title", tip);
+      tipEl.setAttribute("data-tip", tip);
+      tipEl.setAttribute("tabindex", "0");
+      tipEl.setAttribute("aria-label", tip);
+      label.append(tipEl);
+      return label;
+    };
+
+    const addField = (
+      labelText: string,
+      value: string,
+      onInput: (next: string) => void,
+      tipText: string,
+      placeholder = "",
+    ) => {
+      form.append(labelWithTip(labelText, tipText));
+      const input = document.createElement("input");
+      input.className = "custom-input";
+      input.value = value;
+      input.placeholder = placeholder;
+      input.disabled = !editable;
+      if (editable) {
+        input.addEventListener("input", () => onInput(input.value));
+      }
+      form.append(input);
+    };
+
+    addField(
+      "Name",
+      typeModal.draft.display_name_key,
+      (next) => {
+        if (!typeModal) return;
+        typeModal.draft.display_name_key = next;
+      },
+      "Name shown in the list and in scan results. Example: Patient Record Number",
+      "Patient Record Number",
+    );
+
+    addField(
+      "Description",
+      typeModal.draft.description_key,
+      (next) => {
+        if (!typeModal) return;
+        typeModal.draft.description_key = next;
+      },
+      "Explain what this type means to users.",
+      "Contains hospital patient identifiers",
+    );
+
+    form.append(labelWithTip("Category", "Main data family used for classification."));
+    const categorySelect = document.createElement("select");
+    categorySelect.className = "custom-input";
+    categorySelect.disabled = !editable;
+    for (const category of ["pii", "security", "sensitive"]) {
+      const opt = document.createElement("option");
+      opt.value = category;
+      opt.textContent = typeCategoryLabel(category);
+      if ((typeModal.draft.category || "pii").toLowerCase() === category) opt.selected = true;
+      categorySelect.append(opt);
+    }
+    if (editable) {
+      categorySelect.addEventListener("change", () => {
+        if (!typeModal) return;
+        typeModal.draft.category = categorySelect.value;
+      });
+    }
+    form.append(categorySelect);
+
+    form.append(el("label", "custom-label", t("custom.riskPrompt")));
+    const riskSelect = document.createElement("select");
+    riskSelect.className = "custom-input";
+    riskSelect.disabled = !editable;
+    for (const level of ["low", "medium", "high", "critical"]) {
+      const opt = document.createElement("option");
+      opt.value = level;
+      opt.textContent = riskLabel(level as UiAlert["risk_level"]);
+      if (typeModal.draft.risk_level === level) opt.selected = true;
+      riskSelect.append(opt);
+    }
+    if (editable) {
+      riskSelect.addEventListener("change", () => {
+        if (!typeModal) return;
+        typeModal.draft.risk_level = riskSelect.value as UiAlert["risk_level"];
+      });
+    }
+    form.append(riskSelect);
+
+    addField(
+      "Country",
+      typeModal.draft.locale_requirement ?? "",
+      (next) => {
+        if (!typeModal) return;
+        typeModal.draft.locale_requirement = next.trim().toUpperCase() || null;
+      },
+      "Optional country restriction (ISO code). Leave empty for all countries.",
+      "FR",
+    );
+
+    addField(
+      "Field names to match",
+      typeModal.draft.key_labels.join(", "),
+      (next) => {
+        if (!typeModal) return;
+        typeModal.draft.key_labels = parseCsv(next);
+      },
+      "Comma-separated keys that indicate this data in JSON/CSV headers.",
+      "patient_id, health_number",
+    );
+
+    addField(
+      "Filename regex",
+      typeModal.draft.filename_regex ?? "",
+      (next) => {
+        if (!typeModal) return;
+        typeModal.draft.filename_regex = next.trim() ? next : null;
+      },
+      "Regex checked against file names.",
+      "(?i)\\b(patient|medical)\\b",
+    );
+
+    addField(
+      "Field-name regex",
+      typeModal.draft.field_name_regex ?? "",
+      (next) => {
+        if (!typeModal) return;
+        typeModal.draft.field_name_regex = next.trim() ? next : null;
+      },
+      "Regex checked against structured field names.",
+      "(?i)\\bhealth_id|patient_number\\b",
+    );
+
+    addField(
+      "Value regex",
+      typeModal.draft.value_regex ?? "",
+      (next) => {
+        if (!typeModal) return;
+        typeModal.draft.value_regex = next.trim() ? next : null;
+      },
+      "Regex checked against extracted values.",
+      "\\b\\d{13}\\b",
+    );
+
+    const advanced = document.createElement("details");
+    advanced.className = "type-advanced-menu";
+    const advancedSummary = document.createElement("summary");
+    advancedSummary.textContent = "Advanced";
+    advanced.append(advancedSummary);
+    const advancedForm = el("div", "type-advanced-fields");
+
+    const addAdvancedField = (
+      labelText: string,
+      value: string,
+      onInput: (next: string) => void,
+      tipText: string,
+      placeholder = "",
+    ) => {
+      advancedForm.append(labelWithTip(labelText, tipText));
+      const input = document.createElement("input");
+      input.className = "custom-input";
+      input.value = value;
+      input.placeholder = placeholder;
+      input.disabled = !editable;
+      if (editable) {
+        input.addEventListener("input", () => onInput(input.value));
+      }
+      advancedForm.append(input);
+    };
+
+    addAdvancedField(
+      "Blocked extensions",
+      typeModal.draft.advanced.blocked_extensions.join(", "),
+      (next) => {
+        if (!typeModal) return;
+        typeModal.draft.advanced.blocked_extensions = parseCsv(next);
+      },
+      "Ignore these file extensions for this type.",
+      "txt, log",
+    );
+
+    addAdvancedField(
+      "Filename keywords",
+      typeModal.draft.advanced.filename_keywords
+        .map((kw) => `${kw.keyword}:${kw.score}`)
+        .join(", "),
+      (next) => {
+        if (!typeModal) return;
+        typeModal.draft.advanced.filename_keywords = parseFilenameKeywords(next);
+      },
+      "Boost score by filename keyword using keyword:score.",
+      "patient:5, hospital:6",
+    );
+
+    addAdvancedField(
+      "Positive indicators",
+      typeModal.draft.positive_indicators ?? "",
+      (next) => {
+        if (!typeModal) return;
+        typeModal.draft.positive_indicators = next.trim() ? next : null;
+      },
+      "Context words that increase confidence.",
+      "medical, diagnosis",
+    );
+
+    addAdvancedField(
+      "Negative indicators",
+      typeModal.draft.negative_indicators ?? "",
+      (next) => {
+        if (!typeModal) return;
+        typeModal.draft.negative_indicators = next.trim() ? next : null;
+      },
+      "Context words that decrease confidence.",
+      "template, demo",
+    );
+
+    advancedForm.append(labelWithTip("Threshold", "Confidence threshold between 0 and 1."));
+    const thresholdInput = document.createElement("input");
+    thresholdInput.className = "custom-input";
+    thresholdInput.type = "number";
+    thresholdInput.min = "0";
+    thresholdInput.max = "1";
+    thresholdInput.step = "0.05";
+    thresholdInput.value =
+      typeModal.draft.threshold === null ? "" : String(typeModal.draft.threshold);
+    thresholdInput.placeholder = "0.75";
+    thresholdInput.disabled = !editable;
+    if (editable) {
+      thresholdInput.addEventListener("input", () => {
+        if (!typeModal) return;
+        const n = Number.parseFloat(thresholdInput.value);
+        typeModal.draft.threshold = Number.isFinite(n) ? n : null;
+      });
+    }
+    advancedForm.append(thresholdInput);
+
+    advanced.append(advancedForm);
+    form.append(advanced);
+
+    if (typeModal.mode === "view") {
+      form.append(el("div", "field-help", typeDescription(typeModal.draft)));
+    }
+
+    if (typeModal.error) {
+      form.append(el("div", "warn", typeModal.error));
+    }
+
+    const actions = el("div", "actions");
+    if (editable) {
+      const saveBtn = el("button", "btn", t("common.confirm"));
+      saveBtn.addEventListener("click", () => void onSaveCustomType());
+      saveBtn.toggleAttribute("disabled", typeModal.saving);
+      actions.append(saveBtn);
+    }
+    const close = el("button", "btn", t("common.close"));
+    close.addEventListener("click", () => closeTypeModal());
+    actions.append(close);
+    form.append(actions);
+
+    body.append(form);
+    card.append(body);
+    overlay.append(card);
+    overlay.addEventListener("click", (ev) => {
+      if (ev.target === overlay) {
+        closeTypeModal();
+      }
+    });
+    root.append(overlay);
+  }
+
   appEl.replaceChildren(root);
+
+  const nextList = appEl.querySelector<HTMLDivElement>(".alert-list");
+  if (nextList) {
+    nextList.scrollTop = alertsListScrollTop;
+  }
+
+  if (focusedAlertId) {
+    const nextFocused = appEl.querySelector<HTMLButtonElement>(
+      `.alert-item[data-file-id="${focusedAlertId}"]`,
+    );
+    nextFocused?.focus({ preventScroll: true });
+  }
 }
 
-function kvRow(k: string, v: string): HTMLElement {
-  const row = el("div", "kv-row");
+function kvRow(k: string, v: string, rowClass = ""): HTMLElement {
+  const row = el("div", `kv-row ${rowClass}`.trim());
   row.append(el("div", "kv-k", k));
   row.append(el("div", "kv-v", v));
   return row;
@@ -1554,31 +2062,6 @@ function renderFindings(r: Report): HTMLElement {
       for (const v of cat.values.slice(0, 50)) {
         const row = el("div", "reveal-row");
         row.append(el("code", "reveal", v.value));
-        const markBtn = el(
-          "button",
-          `mini ${v.is_mine ? "ok" : ""}`,
-          withIcon(
-            v.is_mine ? "👤" : "✓",
-            t(v.is_mine ? "actions.unmarkMine" : "actions.markMine"),
-          ),
-        );
-        markBtn.addEventListener("click", async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (v.is_mine) {
-            await unmarkValueAsMine(cat.category, v.value);
-          } else {
-            await markValueAsMine(cat.category, v.value);
-          }
-          // Refresh revealed report to update flags.
-          if (selectedFileId) {
-            selectedReport = await getReport(selectedFileId, true);
-            showRevealed = true;
-            render();
-          }
-        });
-        row.append(markBtn);
-
         const ignoreBtn = el(
           "button",
           `mini ${v.is_ignored ? "ok" : ""}`,
@@ -1674,8 +2157,8 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     return;
   }
 
-  if (customFormMode) {
-    closeCustomForm();
+  if (typeModal) {
+    typeModal = null;
     render();
     ev.preventDefault();
     return;
@@ -1725,7 +2208,7 @@ async function main(): Promise<void> {
   });
 
   await refreshSettings();
-  await refreshCustomDetectors();
+  await refreshTypeDefinitions();
   await refreshAlerts();
 
   await listen<string>("pdd:tray", async (e) => {
@@ -1734,6 +2217,7 @@ async function main(): Promise<void> {
     } else if (e.payload === "about") {
       dialog = "about";
       aboutTab = "about";
+      legalDependenciesVisible = false;
       render();
     }
   });

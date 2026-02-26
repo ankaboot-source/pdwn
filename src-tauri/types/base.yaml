@@ -1,0 +1,401 @@
+types:
+  - id: email
+    display_name_key: pii.email
+    description_key: types.desc.email
+    category: pii
+    risk_level: medium
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+
+  - id: phone
+    display_name_key: pii.phone
+    description_key: types.desc.phone
+    category: pii
+    risk_level: medium
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+
+  - id: iban
+    display_name_key: pii.iban
+    description_key: types.desc.iban
+    category: pii
+    risk_level: high
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+
+  - id: credit_card
+    display_name_key: pii.creditCard
+    description_key: types.desc.credit_card
+    category: pii
+    risk_level: high
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+
+  - id: ip_address
+    display_name_key: pii.ipAddress
+    description_key: types.desc.ip_address
+    category: pii
+    risk_level: low
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+
+  - id: mac_address
+    display_name_key: entities.types.mac_address
+    description_key: entities.descriptions.mac_address
+    category: pii
+    risk_level: low
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    value_regex: '(?i)\b(?:(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}|[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4})\b'
+
+  - id: bitcoin
+    display_name_key: entities.types.bitcoin
+    description_key: entities.descriptions.bitcoin
+    category: pii
+    risk_level: medium
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    value_regex: '\b(?:bc1[ac-hj-np-z02-9]{11,71}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b'
+
+  - id: ethereum
+    display_name_key: entities.types.ethereum
+    description_key: entities.descriptions.ethereum
+    category: pii
+    risk_level: medium
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    value_regex: '(?i)\b0x[a-f0-9]{40}\b'
+
+  - id: us_ssn
+    display_name_key: entities.types.us_ssn
+    description_key: entities.descriptions.us_ssn
+    category: pii
+    risk_level: high
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: en-US
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    value_regex: '\b\d{3}[ .-]?\d{2}[ .-]?\d{4}\b'
+
+  - id: us_passport
+    display_name_key: entities.types.us_passport
+    description_key: entities.descriptions.us_passport
+    category: pii
+    risk_level: high
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: en-US
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    field_name_regex: '(?i)\b(passport|passport[_\s-]*(number|no|id)|us[_\s-]*passport)\b'
+    value_regex: '\b[A-Z]\d{8}\b'
+
+  - id: us_itin
+    display_name_key: entities.types.us_itin
+    description_key: entities.descriptions.us_itin
+    category: pii
+    risk_level: high
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: en-US
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    value_regex: '\b9\d{2}[ -]?\d{2}[ -]?\d{4}\b'
+
+  - id: uk_nhs
+    display_name_key: entities.types.uk_nhs
+    description_key: entities.descriptions.uk_nhs
+    category: pii
+    risk_level: high
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: en-GB
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    field_name_regex: '(?i)\b(nhs|nhs[_\s-]*number)\b'
+    value_regex: '\b\d{3}[ -]?\d{3}[ -]?\d{4}\b'
+
+  - id: uk_nino
+    display_name_key: entities.types.uk_nino
+    description_key: entities.descriptions.uk_nino
+    category: pii
+    risk_level: high
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: en-GB
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    value_regex: '(?i)\b[A-CEGHJ-PR-TW-Z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-D]?\b'
+
+  - id: es_dni
+    display_name_key: entities.types.es_dni
+    description_key: entities.descriptions.es_dni
+    category: pii
+    risk_level: high
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: es
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    value_regex: '\b\d{7,8}-?[A-HJ-NP-TV-Z]\b'
+
+  - id: es_nie
+    display_name_key: entities.types.es_nie
+    description_key: entities.descriptions.es_nie
+    category: pii
+    risk_level: high
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: es
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    value_regex: '(?i)\b[XYZ]\d{7}[A-Z]\b'
+
+  - id: es_cif
+    display_name_key: entities.types.es_cif
+    description_key: entities.descriptions.es_cif
+    category: pii
+    risk_level: high
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: es
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    value_regex: '(?i)\b[ABCDEFGHJNPQRSUVW]\d{7}[0-9A-J]\b'
+
+  - id: de_tax_id
+    display_name_key: entities.types.de_tax_id
+    description_key: entities.descriptions.de_tax_id
+    category: pii
+    risk_level: high
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: de
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    value_regex: '\b[1-9]\d{10}\b'
+
+  - id: de_vat
+    display_name_key: entities.types.de_vat
+    description_key: entities.descriptions.de_vat
+    category: pii
+    risk_level: high
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: de
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+    value_regex: '(?i)\bDE\d{9}\b'
+
+  - id: address
+    display_name_key: pii.address
+    description_key: types.desc.address
+    category: pii
+    risk_level: medium
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+
+  - id: postal_code
+    display_name_key: pii.postalCode
+    description_key: types.desc.postal_code
+    category: pii
+    risk_level: medium
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+
+  - id: date_of_birth
+    display_name_key: pii.dateOfBirth
+    description_key: types.desc.date_of_birth
+    category: pii
+    risk_level: high
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+
+  - id: cookie
+    display_name_key: pii.cookie
+    description_key: types.desc.cookie
+    category: pii
+    risk_level: medium
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+
+  - id: user_id
+    display_name_key: pii.userId
+    description_key: types.desc.user_id
+    category: pii
+    risk_level: medium
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+
+  - id: secret
+    display_name_key: pii.secret
+    description_key: types.desc.secret
+    category: security
+    risk_level: high
+    requires_key: true
+    key_labels:
+      - api_key
+      - x-api-key
+      - client_secret
+      - access_token
+      - private_key
+      - bearer_token
+    advanced:
+      blocked_extensions: [ics, ical, calendar, excalidraw, txt]
+      filename_keywords: []
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+
+  - id: weak_archive_encryption
+    display_name_key: pii.weakArchiveEncryption
+    description_key: types.desc.weak_archive_encryption
+    category: security
+    risk_level: high
+    requires_key: false
+    key_labels: []
+    advanced: { blocked_extensions: [], filename_keywords: [] }
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
+
+  - id: file_name_signal
+    display_name_key: pii.fileNameSignal
+    description_key: types.desc.file_name_signal
+    category: pii
+    risk_level: low
+    requires_key: false
+    key_labels: []
+    advanced:
+      blocked_extensions: []
+      filename_keywords:
+        - keyword: secret
+          score: 5
+        - keyword: token
+          score: 5
+        - keyword: password
+          score: 6
+        - keyword: client_secret
+          score: 8
+        - keyword: api_key
+          score: 8
+        - keyword: access_token
+          score: 8
+    enabled: true
+    locale_requirement: null
+    positive_indicators: null
+    negative_indicators: null
+    threshold: null
