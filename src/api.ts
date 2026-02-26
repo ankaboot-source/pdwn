@@ -133,6 +133,10 @@ export async function scanNow(): Promise<void> {
   await invoke("scan_now");
 }
 
+export async function scanPathOnDemand(path: string): Promise<Report> {
+  return invoke("scan_path_on_demand", { path });
+}
+
 export async function stopScan(): Promise<void> {
   await invoke("stop_scan");
 }

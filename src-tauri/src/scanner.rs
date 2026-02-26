@@ -280,8 +280,12 @@ fn scan_path_blocking_with_ignore(
     reasons.append(&mut custom_reasons);
     let score = builtin_score + custom_score;
     let findings = pii::summarize_matches(&matches, true);
-    let (max_level, high_type_count) =
-        overall_risk_evidence(&findings, &custom_findings, custom_detectors, weak_zip_encryption);
+    let (max_level, high_type_count) = overall_risk_evidence(
+        &findings,
+        &custom_findings,
+        custom_detectors,
+        weak_zip_encryption,
+    );
     let risk_level = pii::risk_level_from_evidence(score, max_level, high_type_count);
 
     let revealed = if mode == ScanMode::Reveal {

@@ -271,6 +271,81 @@ async fn get_report(
     Ok(report)
 }
 
+#[tauri::command]
+async fn scan_path_on_demand(
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<Report, String> {
+    tracing::debug!(path, "command:scan_path_on_demand");
+
+    if crate::agents::is_agent_device_disabled(&state.db)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        return Err("agent is disabled by server".to_string());
+    }
+
+    let file_path = std::path::Path::new(&path);
+    if !file_path.is_file() {
+        return Err("path is not a file".to_string());
+    }
+
+    let settings = state.settings.lock().await.clone();
+    if settings.is_ignored_extension(file_path) {
+        return Err("file extension is ignored by settings".to_string());
+    }
+
+    let metadata = std::fs::metadata(file_path).map_err(|e| e.to_string())?;
+    let size = metadata.len() as i64;
+    let mtime = metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let now = now_ts();
+
+    let custom_detectors = yaml_custom_detectors(state.inner()).await;
+    let entity_settings = state
+        .db
+        .get_entity_settings()
+        .await
+        .map_err(|e| e.to_string())?;
+    let ignored_snapshot = state
+        .db
+        .get_ignored_values_snapshot()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let scan = scanner::scan_path_with_ignore_snapshot(
+        &path,
+        &settings,
+        &custom_detectors,
+        &entity_settings,
+        scanner::ScanMode::Redacted,
+        Some(&ignored_snapshot),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(Report {
+        file_id: 0,
+        path,
+        first_seen_at: now,
+        last_seen_at: now,
+        size,
+        mtime,
+        risk_level: scan.risk_level.clone(),
+        risk_score: scan.risk_score,
+        reasons: scan.reasons,
+        findings: scan.findings,
+        custom_findings: scan.custom_findings,
+        weak_zip_encryption: scan.weak_zip_encryption,
+        suggestion: watcher::suggestion_for(&scan.risk_level),
+        revealed: None,
+    })
+}
+
 // Ignore commands for values detected in revealed findings.
 #[tauri::command]
 async fn ignore_value(
@@ -989,6 +1064,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_alerts,
             get_report,
+            scan_path_on_demand,
             ignore_value,
             unignore_value,
             ignore_file,

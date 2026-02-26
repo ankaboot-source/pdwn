@@ -14,7 +14,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            bundle: appimage
+            artifact_pattern: "*.AppImage"
+          - os: windows-latest
+            bundle: msi
+            artifact_pattern: "*.msi"
+          - os: macos-latest
+            bundle: dmg
+            artifact_pattern: "*.dmg"
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -32,26 +41,22 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build Tauri app
-        run: bun tauri build
+        run: bun tauri build --bundles ${{ matrix.bundle }}
 
-      - name: Collect release bundles (linux/macos)
-        if: matrix.os != 'windows-latest'
+      - name: Collect release bundles
         shell: bash
         run: |
           mkdir -p release-assets
           shopt -s globstar nullglob
-          for file in src-tauri/target/release/bundle/**/*.{AppImage,deb,rpm,dmg,app,tar.gz}; do
+          matched=0
+          for file in src-tauri/target/release/bundle/**/${{ matrix.artifact_pattern }}; do
             cp "$file" release-assets/
+            matched=1
           done
-
-      - name: Collect release bundles (windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path release-assets -Force | Out-Null
-          Get-ChildItem -Path src-tauri/target/release/bundle -Recurse -Include *.msi,*.exe,*.zip | ForEach-Object {
-            Copy-Item $_.FullName -Destination release-assets
-          }
+          if [ "$matched" -eq 0 ]; then
+            echo "No artifacts found for pattern ${{ matrix.artifact_pattern }}"
+            exit 1
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
