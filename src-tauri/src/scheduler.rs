@@ -195,9 +195,9 @@ async fn initial_process_file(
 
     let scan = match scanner::scan_path_with_ignore_snapshot(
         &path.to_string_lossy(),
-        &settings,
-        &custom_detectors,
-        &entity_settings,
+        settings,
+        custom_detectors,
+        entity_settings,
         scanner::ScanMode::Redacted,
         ignored,
     )
@@ -222,6 +222,8 @@ async fn initial_process_file(
     if !has_any_signal {
         return Ok(());
     }
+
+    crate::cache_scan_reveal_data(state, file_id, scan.reveal_cache.clone()).await;
 
     let suggestion = super::watcher::suggestion_for(&scan.risk_level);
     let _ = state

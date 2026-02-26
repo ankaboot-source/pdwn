@@ -647,10 +647,13 @@ fn is_relevant_public_ip(ip: &str, full_text: &str, match_start: usize, match_en
     }
 
     // Exclude likely section numbering like 1.2.3.1 in docs.
-    if a <= 31 && b <= 31 && c <= 31 && d <= 31 {
-        if !has_network_context_near(full_text, match_start, match_end) {
-            return false;
-        }
+    if a <= 31
+        && b <= 31
+        && c <= 31
+        && d <= 31
+        && !has_network_context_near(full_text, match_start, match_end)
+    {
+        return false;
     }
 
     true

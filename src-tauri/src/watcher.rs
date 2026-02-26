@@ -228,7 +228,7 @@ async fn process_file(
         return Ok(());
     }
 
-    let custom_detectors = crate::yaml_custom_detectors(&state).await;
+    let custom_detectors = crate::yaml_custom_detectors(state).await;
     let entity_settings = state.db.get_entity_settings().await.unwrap_or_default();
 
     let scan = match scanner::scan_path_with_ignore_snapshot(
@@ -272,6 +272,8 @@ async fn process_file(
         tracing::debug!(file_id, "watcher:no_signal_skip");
         return Ok(());
     }
+
+    crate::cache_scan_reveal_data(state, file_id, scan.reveal_cache.clone()).await;
 
     let suggestion = suggestion_for(&scan.risk_level);
     let _scan_id = state
