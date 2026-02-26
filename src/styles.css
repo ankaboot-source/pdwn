@@ -158,6 +158,39 @@ body {
   position: relative;
 }
 
+.scan-split {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.scan-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.scan-toggle {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  min-width: 34px;
+  padding-inline: 8px;
+}
+
+.scan-menu {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  z-index: 6;
+  display: grid;
+  gap: 4px;
+  min-width: 190px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(9, 18, 14, 0.96);
+  box-shadow: var(--shadow);
+}
+
 .menu {
   position: absolute;
   top: 44px;
@@ -788,6 +821,27 @@ code {
 .dialog-body {
   padding: 14px;
   color: var(--text);
+}
+
+.agents-body {
+  display: grid;
+  gap: 12px;
+}
+
+.agents-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.agents-token-input {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .legal-actions {

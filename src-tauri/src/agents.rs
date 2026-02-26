@@ -14,6 +14,7 @@ use crate::types::Report;
 use crate::{now_ts, parse_i64_opt, AppState};
 
 const SERVER_BIND_ADDR: &str = "0.0.0.0:9487";
+const SERVER_PUBLIC_URL_ENV: &str = "PDWN_SERVER_PUBLIC_URL";
 
 pub struct AgentsServerRuntime {
     shutdown_tx: oneshot::Sender<()>,
@@ -122,6 +123,7 @@ pub async fn sync_server_runtime(state: AppState) -> Result<()> {
             let _ = running.shutdown_tx.send(());
         }
         let _ = state.db.delete_kv("server_listen_addr").await;
+        let _ = state.db.delete_kv("server_pair_secret").await;
         return Ok(());
     }
 
@@ -131,12 +133,11 @@ pub async fn sync_server_runtime(state: AppState) -> Result<()> {
     }
 
     let listener = tokio::net::TcpListener::bind(SERVER_BIND_ADDR).await?;
+    let local_addr = listener.local_addr()?;
+    let advertised_url = compute_advertised_server_url(local_addr.port());
     state
         .db
-        .set_kv(
-            "server_listen_addr",
-            &format!("http://{}", listener.local_addr()?),
-        )
+        .set_kv("server_listen_addr", &advertised_url)
         .await?;
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -404,7 +405,7 @@ async fn pair_agent(
     let now = now_ts();
     let expected_code = state
         .db
-        .get_kv("server_pair_code")
+        .get_kv("server_pair_secret")
         .await
         .map_err(internal_error)?
         .ok_or_else(|| {
@@ -454,6 +455,11 @@ async fn pair_agent(
     state
         .db
         .delete_kv("server_pair_code")
+        .await
+        .map_err(internal_error)?;
+    state
+        .db
+        .delete_kv("server_pair_secret")
         .await
         .map_err(internal_error)?;
     state
@@ -603,6 +609,25 @@ async fn load_server_alerts(db: &Db) -> Result<Vec<ServerAlertRow>> {
         Some(v) if !v.trim().is_empty() => Ok(serde_json::from_str(&v).unwrap_or_default()),
         _ => Ok(Vec::new()),
     }
+}
+
+fn compute_advertised_server_url(port: u16) -> String {
+    if let Ok(raw) = std::env::var(SERVER_PUBLIC_URL_ENV) {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+
+    let local_ip = std::net::UdpSocket::bind("0.0.0.0:0")
+        .and_then(|socket| {
+            socket.connect("1.1.1.1:80")?;
+            socket.local_addr()
+        })
+        .ok()
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_else(|| "localhost".to_string());
+    format!("http://{}:{}", local_ip, port)
 }
 
 async fn save_server_alerts(db: &Db, alerts: &[ServerAlertRow]) -> Result<()> {

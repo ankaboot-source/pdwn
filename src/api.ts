@@ -137,6 +137,14 @@ export async function scanPathOnDemand(path: string): Promise<Report> {
   return invoke("scan_path_on_demand", { path });
 }
 
+export async function revealRedactedValue(
+  fileId: number,
+  category: string,
+  redactedValue: string,
+): Promise<string | null> {
+  return invoke("reveal_redacted_value", { fileId, category, redactedValue });
+}
+
 export async function stopScan(): Promise<void> {
   await invoke("stop_scan");
 }
@@ -298,14 +306,12 @@ export async function createServerPairCode(validMinutes = 30): Promise<AgentsSta
 }
 
 export async function pairAsAgent(
-  serverUrl: string,
-  code: string,
+  pairToken: string,
   internetConfirmed: boolean,
   validDays = 14,
 ): Promise<AgentsState> {
   return invoke("pair_as_agent", {
-    serverUrl,
-    code,
+    pairToken,
     internetConfirmed,
     validDays,
   });

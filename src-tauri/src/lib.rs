@@ -21,10 +21,14 @@ mod integration_dataset_tests;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::{
+    collections::HashMap,
     net::IpAddr,
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::sync::Mutex;
 
@@ -32,11 +36,14 @@ use crate::db::Db;
 use crate::settings::Settings;
 use crate::type_catalog::TypeDefinition;
 use crate::types::{
-    AgentsMode, AgentsState, AppEvent, CustomDetector, FileId, NewCustomDetector, Report, UiAlert,
+    AgentsMode, AgentsState, AppEvent, CustomDetector, FileId, NewCustomDetector, PiiCategory,
+    Report, RevealCache, UiAlert,
 };
 
 const DEFAULT_AGENT_PAIR_DAYS: i64 = 14;
 const DEFAULT_SERVER_CODE_MINUTES: i64 = 30;
+const MAX_REVEAL_VALUES_PER_CATEGORY: usize = 100;
+const MAX_REVEAL_VALUES_PER_FILE: usize = 500;
 
 fn is_text_neutralizable_ext(ext: &str) -> bool {
     matches!(
@@ -71,16 +78,66 @@ fn parse_i64_opt(value: Option<String>) -> Option<i64> {
 
 fn generate_pair_code() -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    let mut bytes = [0u8; 8];
+    let mut bytes = [0u8; 24];
     let _ = getrandom::fill(&mut bytes);
-    let mut out = String::with_capacity(9);
-    for (idx, b) in bytes.iter().enumerate() {
-        if idx == 4 {
-            out.push('-');
-        }
+    let mut out = String::with_capacity(24);
+    for b in &bytes {
         out.push(ALPHABET[(*b as usize) % ALPHABET.len()] as char);
     }
     out
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
+struct PairTokenClaims {
+    iss: String,
+    pairing_code: String,
+    exp: i64,
+    iat: i64,
+    jti: String,
+}
+
+#[allow(dead_code)]
+fn build_pair_token(server_url: &str, pairing_code: &str, exp: i64) -> Result<String, String> {
+    let header = serde_json::json!({ "alg": "none", "typ": "JWT" });
+    let claims = PairTokenClaims {
+        iss: server_url.to_string(),
+        pairing_code: pairing_code.to_string(),
+        exp,
+        iat: now_ts(),
+        jti: format!("pc_{}", generate_pair_code()),
+    };
+    let header_enc = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&header).map_err(|e| format!("pair token header error: {}", e))?,
+    );
+    let claims_enc = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&claims).map_err(|e| format!("pair token claims error: {}", e))?,
+    );
+    Ok(format!("{}.{}.nosig", header_enc, claims_enc))
+}
+
+#[allow(dead_code)]
+fn parse_pair_token(pair_token: &str) -> Result<PairTokenClaims, String> {
+    let trimmed = pair_token.trim();
+    if trimmed.is_empty() {
+        return Err("pair token is required".to_string());
+    }
+    let parts: Vec<&str> = trimmed.split('.').collect();
+    if parts.len() != 3 {
+        return Err("invalid pair token format".to_string());
+    }
+    let payload_raw = URL_SAFE_NO_PAD
+        .decode(parts[1])
+        .map_err(|_| "invalid pair token payload".to_string())?;
+    let claims: PairTokenClaims =
+        serde_json::from_slice(&payload_raw).map_err(|_| "invalid pair token JSON".to_string())?;
+    if claims.iss.trim().is_empty() || claims.pairing_code.trim().is_empty() {
+        return Err("invalid pair token claims".to_string());
+    }
+    if claims.exp <= now_ts() {
+        return Err("pair token expired".to_string());
+    }
+    Ok(claims)
 }
 
 fn is_internet_server_url(server_url: &str) -> Result<bool, String> {
@@ -182,6 +239,9 @@ async fn load_agents_state(db: &Db) -> Result<AgentsState, String> {
         db.delete_kv("server_pair_code")
             .await
             .map_err(|e| e.to_string())?;
+        db.delete_kv("server_pair_secret")
+            .await
+            .map_err(|e| e.to_string())?;
         db.delete_kv("server_pair_code_expires_at")
             .await
             .map_err(|e| e.to_string())?;
@@ -215,6 +275,94 @@ struct AppState {
     type_catalog: Arc<Mutex<type_catalog::TypeRegistry>>,
     scan_running: Arc<AtomicBool>,
     scan_cancel: Arc<AtomicBool>,
+    reveal_cache: Arc<Mutex<HashMap<FileId, RevealCache>>>,
+}
+
+fn parse_builtin_category(category: &str) -> Option<PiiCategory> {
+    match category {
+        "email" => Some(PiiCategory::Email),
+        "phone" => Some(PiiCategory::Phone),
+        "iban" => Some(PiiCategory::Iban),
+        "credit_card" => Some(PiiCategory::CreditCard),
+        "ip_address" => Some(PiiCategory::IpAddress),
+        "address" => Some(PiiCategory::Address),
+        "postal_code" => Some(PiiCategory::PostalCode),
+        "date_of_birth" => Some(PiiCategory::DateOfBirth),
+        "cookie" => Some(PiiCategory::Cookie),
+        "user_id" => Some(PiiCategory::UserId),
+        "secret" => Some(PiiCategory::Secret),
+        "file_name_signal" => Some(PiiCategory::FileNameSignal),
+        "weak_archive_encryption" => Some(PiiCategory::WeakArchiveEncryption),
+        _ => None,
+    }
+}
+
+fn trim_reveal_cache(cache: &mut RevealCache) {
+    let mut total = 0usize;
+    for values in cache.by_category.values_mut() {
+        if values.len() > MAX_REVEAL_VALUES_PER_CATEGORY {
+            values.truncate(MAX_REVEAL_VALUES_PER_CATEGORY);
+        }
+        total += values.len();
+    }
+
+    if total <= MAX_REVEAL_VALUES_PER_FILE {
+        return;
+    }
+
+    for values in cache.by_category.values_mut() {
+        while total > MAX_REVEAL_VALUES_PER_FILE && !values.is_empty() {
+            values.pop();
+            total -= 1;
+        }
+        if total <= MAX_REVEAL_VALUES_PER_FILE {
+            break;
+        }
+    }
+}
+
+pub(crate) async fn cache_scan_reveal_data(
+    state: &AppState,
+    file_id: FileId,
+    mut cache: RevealCache,
+) {
+    trim_reveal_cache(&mut cache);
+    let mut all = state.reveal_cache.lock().await;
+    all.insert(file_id, cache);
+}
+
+async fn reveal_from_cache(
+    state: &tauri::State<'_, AppState>,
+    file_id: FileId,
+    category: &str,
+    redacted_value: &str,
+) -> Result<Option<String>, String> {
+    let cache = state.reveal_cache.lock().await;
+    let Some(file_cache) = cache.get(&file_id) else {
+        return Ok(None);
+    };
+    let Some(values) = file_cache.by_category.get(category) else {
+        return Ok(None);
+    };
+
+    for pair in values {
+        if pair.redacted != redacted_value {
+            continue;
+        }
+        if let Some(cat) = parse_builtin_category(category) {
+            let ignored = state
+                .db
+                .is_user_value(cat, &pair.clear)
+                .await
+                .map_err(|e| e.to_string())?;
+            if ignored {
+                continue;
+            }
+        }
+        return Ok(Some(pair.clear.clone()));
+    }
+
+    Ok(None)
 }
 
 #[tauri::command]
@@ -237,35 +385,39 @@ async fn get_report(
         .map_err(|e| e.to_string())?;
 
     if reveal {
-        let settings = state.settings.lock().await.clone();
-        let custom_detectors = yaml_custom_detectors(state.inner()).await;
-        let entity_settings = state
-            .db
-            .get_entity_settings()
-            .await
-            .map_err(|e| e.to_string())?;
-        // Do not store revealed values in DB; rescan on-demand.
-        let scan = scanner::scan_path_with_settings(
-            &report.path,
-            &settings,
-            &custom_detectors,
-            &entity_settings,
-            scanner::ScanMode::Reveal,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-        let mut revealed = scan.revealed.unwrap_or_default();
-        for cat in &mut revealed.by_category {
-            for v in &mut cat.values {
-                let is_ignored = state
-                    .db
-                    .is_user_value(cat.category.clone(), &v.value)
-                    .await
-                    .unwrap_or(false);
-                v.is_ignored = is_ignored;
+        let file_cache = {
+            let cache = state.reveal_cache.lock().await;
+            cache.get(&file_id).cloned()
+        };
+        if let Some(file_cache) = file_cache {
+            let mut by_category = Vec::new();
+            for (category, pairs) in &file_cache.by_category {
+                let mut values = Vec::new();
+                for pair in pairs {
+                    let is_ignored = if let Some(cat) = parse_builtin_category(category) {
+                        state
+                            .db
+                            .is_user_value(cat, &pair.clear)
+                            .await
+                            .unwrap_or(false)
+                    } else {
+                        false
+                    };
+                    values.push(crate::types::RevealedValue {
+                        value: pair.clear.clone(),
+                        is_ignored,
+                    });
+                }
+
+                if let Some(cat) = parse_builtin_category(category) {
+                    by_category.push(crate::types::RevealedCategory {
+                        category: cat,
+                        values,
+                    });
+                }
             }
+            report.revealed = Some(crate::types::RevealedFindings { by_category });
         }
-        report.revealed = Some(revealed);
     }
 
     Ok(report)
@@ -335,7 +487,7 @@ async fn scan_path_on_demand(
         last_seen_at: now,
         size,
         mtime,
-        risk_level: scan.risk_level.clone(),
+        risk_level: scan.risk_level,
         risk_score: scan.risk_score,
         reasons: scan.reasons,
         findings: scan.findings,
@@ -344,6 +496,16 @@ async fn scan_path_on_demand(
         suggestion: watcher::suggestion_for(&scan.risk_level),
         revealed: None,
     })
+}
+
+#[tauri::command]
+async fn reveal_redacted_value(
+    state: tauri::State<'_, AppState>,
+    file_id: FileId,
+    category: String,
+    redacted_value: String,
+) -> Result<Option<String>, String> {
+    reveal_from_cache(&state, file_id, &category, &redacted_value).await
 }
 
 // Ignore commands for values detected in revealed findings.
@@ -418,7 +580,11 @@ async fn delete_file_to_trash(
         .db
         .mark_deleted(file_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    let mut cache = state.reveal_cache.lock().await;
+    cache.remove(&file_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -623,7 +789,9 @@ async fn stop_scan(state: tauri::State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 async fn clear_alerts(state: tauri::State<'_, AppState>) -> Result<(), String> {
     tracing::debug!("command:clear_alerts");
-    state.db.clear_alerts().await.map_err(|e| e.to_string())
+    state.db.clear_alerts().await.map_err(|e| e.to_string())?;
+    state.reveal_cache.lock().await.clear();
+    Ok(())
 }
 
 #[tauri::command]
@@ -648,6 +816,9 @@ async fn set_agents_mode(
     match mode {
         AgentsMode::Agent => {
             db.delete_kv("server_pair_code")
+                .await
+                .map_err(|e| e.to_string())?;
+            db.delete_kv("server_pair_secret")
                 .await
                 .map_err(|e| e.to_string())?;
             db.delete_kv("server_pair_code_expires_at")
@@ -689,9 +860,22 @@ async fn create_server_pair_code(
         .clamp(5, 24 * 60);
     let now = now_ts();
     let expires_at = now + minutes * 60;
-    let code = generate_pair_code();
+    let secret_code = generate_pair_code();
 
-    db.set_kv("server_pair_code", &code)
+    agents::sync_server_runtime(state.inner().clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    let server_url = db
+        .get_kv("server_listen_addr")
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "server is not listening yet".to_string())?;
+    let token = build_pair_token(&server_url, &secret_code, expires_at)?;
+
+    db.set_kv("server_pair_code", &token)
+        .await
+        .map_err(|e| e.to_string())?;
+    db.set_kv("server_pair_secret", &secret_code)
         .await
         .map_err(|e| e.to_string())?;
     db.set_kv("server_pair_code_expires_at", &expires_at.to_string())
@@ -699,28 +883,19 @@ async fn create_server_pair_code(
         .map_err(|e| e.to_string())?;
 
     let out = load_agents_state(db).await?;
-    agents::sync_server_runtime(state.inner().clone())
-        .await
-        .map_err(|e| e.to_string())?;
     Ok(out)
 }
 
 #[tauri::command]
 async fn pair_as_agent(
     state: tauri::State<'_, AppState>,
-    server_url: String,
-    code: String,
+    pair_token: String,
     internet_confirmed: bool,
     valid_days: Option<i64>,
 ) -> Result<AgentsState, String> {
     let db = &state.db;
-    let trimmed_url = server_url.trim();
-    if trimmed_url.is_empty() {
-        return Err("server URL is required".to_string());
-    }
-    if code.trim().is_empty() {
-        return Err("pairing code is required".to_string());
-    }
+    let claims = parse_pair_token(&pair_token)?;
+    let trimmed_url = claims.iss.trim();
 
     let internet_url = is_internet_server_url(trimmed_url)?;
     if internet_url && !internet_confirmed {
@@ -729,7 +904,8 @@ async fn pair_as_agent(
 
     let days = valid_days.unwrap_or(DEFAULT_AGENT_PAIR_DAYS).clamp(1, 180);
     let now = now_ts();
-    let expires_at = agents::pair_on_remote_server(db, trimmed_url, &code, days).await?;
+    let expires_at =
+        agents::pair_on_remote_server(db, trimmed_url, &claims.pairing_code, days).await?;
 
     db.set_kv("agents_mode", "agent")
         .await
@@ -748,6 +924,9 @@ async fn pair_as_agent(
         .map_err(|e| e.to_string())?;
 
     db.delete_kv("server_pair_code")
+        .await
+        .map_err(|e| e.to_string())?;
+    db.delete_kv("server_pair_secret")
         .await
         .map_err(|e| e.to_string())?;
     db.delete_kv("server_pair_code_expires_at")
@@ -1022,6 +1201,7 @@ pub fn run() {
                     scan_running: Arc::new(AtomicBool::new(false)),
                     scan_cancel: Arc::new(AtomicBool::new(false)),
                     type_catalog: Arc::new(Mutex::new(type_catalog)),
+                    reveal_cache: Arc::new(Mutex::new(HashMap::new())),
                 };
 
                 app_handle.manage(state.clone());
@@ -1065,6 +1245,7 @@ pub fn run() {
             list_alerts,
             get_report,
             scan_path_on_demand,
+            reveal_redacted_value,
             ignore_value,
             unignore_value,
             ignore_file,

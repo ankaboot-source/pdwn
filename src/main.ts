@@ -38,6 +38,7 @@ import {
   openInFileManager,
   pairAsAgent,
   reloadTypeCatalog,
+  revealRedactedValue,
   scanNow,
   scanPathOnDemand as scanPathOnDemandApi,
   setAgentsMode,
@@ -89,6 +90,7 @@ let sortBy: SortMode = "risk_desc";
 let showIgnored = false;
 let isScanning = false;
 let scanProgress: { processed: number; total: number } | null = null;
+let scanMenuOpen = false;
 let menuOpen = false;
 let dialog: "about" | "types" | "agents" | null = null;
 let aboutTab: "about" | "legal" = "about";
@@ -104,8 +106,7 @@ let agentsError: string | null = null;
 let serverDevices: ServerDevice[] = [];
 let serverAlerts: ServerAlert[] = [];
 let serverHostTypesYaml = "types: []\n";
-let agentServerUrlInput = "";
-let agentPairCodeInput = "";
+let agentPairTokenInput = "";
 let agentPairDaysInput = "14";
 let typeModal: {
   mode: "view" | "create" | "edit";
@@ -119,6 +120,7 @@ let debugMode = false;
 let confirmAction: ConfirmAction | null = null;
 
 const expandedRedacted = new Set<string>();
+const revealedExampleValues = new Map<string, string>();
 let alertsListScrollTop = 0;
 
 type SortMode = "risk_desc" | "risk_asc" | "recent" | "type";
@@ -152,27 +154,8 @@ function withIcon(icon: string, text: string): string {
   return `${icon} ${text}`;
 }
 
-function exampleKey(category: string, index: number): string {
-  return `${category}:${index}`;
-}
-
-function getRevealedValue(category: string, index: number): string | null {
-  const byCategory = selectedReport?.revealed?.by_category ?? [];
-  const match = byCategory.find((c) => c.category === category);
-  return match?.values[index]?.value ?? null;
-}
-
-async function ensureRevealLoadedForExamples(): Promise<boolean> {
-  if (!selectedFileId) return false;
-  if (selectedReport?.revealed?.by_category?.length) return true;
-  try {
-    selectedReport = await getReport(selectedFileId, true);
-    reportLoadError = null;
-    return true;
-  } catch (error) {
-    reportLoadError = error instanceof Error ? error.message : String(error);
-    return false;
-  }
+function exampleKey(scope: "builtin" | "custom", category: string, index: number): string {
+  return `${scope}:${category}:${index}`;
 }
 
 function canRevealReport(r: Report): boolean {
@@ -218,6 +201,11 @@ async function onScanNow(): Promise<void> {
     isScanning = false;
     render();
   }
+}
+
+async function onScanFolders(): Promise<void> {
+  scanMenuOpen = false;
+  await onScanNow();
 }
 
 function normalizePathForCompare(path: string): string {
@@ -299,6 +287,7 @@ async function onScanPathOnDemand(path: string): Promise<void> {
   revealLoading = false;
   neutralizeLoading = false;
   expandedRedacted.clear();
+  revealedExampleValues.clear();
   reportLoadError = null;
   onDemandScanLoading = true;
   reportDropActive = false;
@@ -315,6 +304,7 @@ async function onScanPathOnDemand(path: string): Promise<void> {
 }
 
 async function onPickFileForOnDemandScan(): Promise<void> {
+  scanMenuOpen = false;
   const selected = await open({
     directory: false,
     multiple: false,
@@ -451,19 +441,41 @@ async function removeWatchedDirectory(index: number): Promise<void> {
   await saveWatchedDirectories(dirs);
 }
 
-async function toggleRedactedExample(category: string, index: number): Promise<void> {
-  const key = exampleKey(category, index);
+async function toggleRedactedExample(
+  scope: "builtin" | "custom",
+  category: string,
+  index: number,
+  redactedValue: string,
+): Promise<void> {
+  const key = exampleKey(scope, category, index);
   if (expandedRedacted.has(key)) {
     expandedRedacted.delete(key);
+    revealedExampleValues.delete(key);
     render();
     return;
   }
-  const ready = await ensureRevealLoadedForExamples();
-  if (!ready) {
+
+  if (!selectedFileId || revealLoading) {
     render();
     return;
   }
-  if (getRevealedValue(category, index)) {
+
+  revealLoading = true;
+  render();
+  try {
+    const clearValue = await revealRedactedValue(selectedFileId, category, redactedValue);
+    if (clearValue) {
+      revealedExampleValues.set(key, clearValue);
+      expandedRedacted.add(key);
+    }
+    reportLoadError = null;
+  } catch (error) {
+    reportLoadError = error instanceof Error ? error.message : String(error);
+  } finally {
+    revealLoading = false;
+  }
+
+  if (revealedExampleValues.get(key)) {
     expandedRedacted.add(key);
   }
   render();
@@ -1197,12 +1209,7 @@ async function onPairAsAgent(confirmInternet: boolean): Promise<void> {
   agentsError = null;
   render();
   try {
-    agentsState = await pairAsAgent(
-      agentServerUrlInput,
-      agentPairCodeInput,
-      confirmInternet,
-      validDays,
-    );
+    agentsState = await pairAsAgent(agentPairTokenInput, confirmInternet, validDays);
     await syncHostTypesFromServer();
     await refreshTypeDefinitions();
   } catch (error) {
@@ -1310,6 +1317,7 @@ async function selectFile(fileId: number): Promise<void> {
   onDemandScanLoading = false;
   reportDropActive = false;
   expandedRedacted.clear();
+  revealedExampleValues.clear();
   reportLoadError = null;
   try {
     selectedReport = await getReport(fileId, false);
@@ -1402,6 +1410,7 @@ async function onConfirmAction(): Promise<void> {
         selectedReport = await getReport(action.fileId, false);
         showRevealed = false;
         expandedRedacted.clear();
+        revealedExampleValues.clear();
       }
     } catch (error) {
       reportLoadError = error instanceof Error ? error.message : String(error);
@@ -1450,7 +1459,8 @@ function render(): void {
     controls.append(debugBadge);
   }
 
-  const scanBtn = el("button", "btn");
+  const scanWrap = el("div", "scan-split");
+  const scanBtn = el("button", "btn scan-main");
   if (isScanning) {
     scanBtn.append(el("span", "spinner"));
     const p = scanProgress;
@@ -1459,16 +1469,47 @@ function render(): void {
       : t("actions.scanRunning");
   } else {
     scanBtn.append(el("span", "", "🔎"));
-    scanBtn.title = t("actions.scan");
+    scanBtn.title = t("actions.scanFolders");
   }
   scanBtn.append(document.createTextNode(` ${t("actions.scan")}`));
-  scanBtn.addEventListener("click", () => void onScanNow());
-  controls.append(scanBtn);
+  scanBtn.addEventListener("click", () => void onScanFolders());
+  scanWrap.append(scanBtn);
+
+  const scanToggleBtn = el("button", "btn scan-toggle", "▾") as HTMLButtonElement;
+  scanToggleBtn.title = t("actions.scan");
+  scanToggleBtn.disabled = isScanning;
+  scanToggleBtn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    scanMenuOpen = !scanMenuOpen;
+    if (scanMenuOpen) {
+      menuOpen = false;
+    }
+    render();
+  });
+  scanWrap.append(scanToggleBtn);
+
+  if (scanMenuOpen) {
+    const scanMenu = el("div", "scan-menu");
+    const scanFoldersBtn = el("button", "menu-item", t("actions.scanFolders"));
+    scanFoldersBtn.addEventListener("click", () => void onScanFolders());
+    scanMenu.append(scanFoldersBtn);
+
+    const scanFileBtn = el("button", "menu-item", t("actions.scanFile"));
+    scanFileBtn.addEventListener("click", () => void onPickFileForOnDemandScan());
+    scanMenu.append(scanFileBtn);
+    scanWrap.append(scanMenu);
+  }
+
+  controls.append(scanWrap);
 
   const menuBtn = el("button", "btn", "☰");
   menuBtn.title = t("menu.title");
   menuBtn.addEventListener("click", () => {
     menuOpen = !menuOpen;
+    if (menuOpen) {
+      scanMenuOpen = false;
+    }
     render();
   });
   controls.append(menuBtn);
@@ -1809,6 +1850,7 @@ function render(): void {
       reportDropActive = false;
       reportLoadError = null;
       expandedRedacted.clear();
+      revealedExampleValues.clear();
       render();
     });
     reportHeader.append(closeReportBtn);
@@ -1984,6 +2026,9 @@ function render(): void {
     card.append(head);
 
     const body = el("div", "dialog-body");
+    if (dialog === "agents") {
+      body.classList.add("agents-body");
+    }
     if (dialog === "about") {
       const tabs = el("div", "dialog-tabs");
       const tAbout = el(
@@ -2066,19 +2111,30 @@ function render(): void {
 
       if (agentsState?.mode === "server") {
         body.append(el("div", "suggestion", t("agents.serverHelp")));
-        body.append(
+        const serverCard = el("div", "agents-card");
+        serverCard.append(
           kvRow(t("agents.serverAddress"), agentsState.server_listen_addr ?? t("agents.loading")),
         );
         const code = agentsState.server_pair_code;
         const expires = agentsState.server_pair_code_expires_at;
-        const codeValue = code ?? "-";
-        body.append(kvRow(t("agents.serverCode"), codeValue));
-        body.append(
+        serverCard.append(
+          kvRow(
+            t("agents.serverCode"),
+            code ? t("agents.jwtReady") : t("agents.serverCodeMissing"),
+          ),
+        );
+        serverCard.append(
           kvRow(
             t("agents.serverCodeExpires"),
             expires ? fmtDate(expires) : t("agents.serverCodeMissing"),
           ),
         );
+        const codeDisplay = document.createElement("textarea");
+        codeDisplay.className = "custom-input agents-token-input";
+        codeDisplay.rows = 4;
+        codeDisplay.readOnly = true;
+        codeDisplay.value = code ?? "";
+        serverCard.append(codeDisplay);
         const actions = el("div", "actions");
         const genBtn = el(
           "button",
@@ -2094,13 +2150,14 @@ function render(): void {
           await navigator.clipboard.writeText(code);
         });
         actions.append(copyBtn);
-        body.append(actions);
+        serverCard.append(actions);
+        body.append(serverCard);
 
         body.append(el("h4", "entity-section-title", t("agents.devicesTitle")));
         if (serverDevices.length === 0) {
           body.append(el("div", "empty", t("agents.devicesEmpty")));
         } else {
-          const devicesList = el("div", "type-list");
+          const devicesList = el("div", "type-list agents-card");
           for (const device of serverDevices) {
             const card = el("div", "report-meta");
             const leftCol = el("div", "report-meta-left");
@@ -2143,28 +2200,31 @@ function render(): void {
         }
 
         body.append(el("h4", "entity-section-title", t("agents.hostTypesTitle")));
+        const hostCard = el("div", "agents-card");
         const hostTypesInput = document.createElement("textarea");
-        hostTypesInput.className = "custom-input";
+        hostTypesInput.className = "custom-input agents-token-input";
         hostTypesInput.rows = 8;
         hostTypesInput.value = serverHostTypesYaml;
         hostTypesInput.addEventListener("input", () => {
           serverHostTypesYaml = hostTypesInput.value;
         });
-        body.append(hostTypesInput);
+        hostCard.append(hostTypesInput);
         const hostActions = el("div", "actions");
         const saveHostBtn = el("button", "btn", t("agents.saveHostTypes"));
         saveHostBtn.addEventListener("click", () => void onSaveServerHostTypes());
         hostActions.append(saveHostBtn);
-        body.append(hostActions);
+        hostCard.append(hostActions);
+        body.append(hostCard);
       } else {
         body.append(el("div", "suggestion", t("agents.agentHelp")));
         const isPaired = isAgentPaired();
         if (isPaired) {
-          body.append(kvRow(t("agents.pairedServer"), agentsState?.paired_server_url ?? "-"));
+          const pairedCard = el("div", "agents-card");
+          pairedCard.append(kvRow(t("agents.pairedServer"), agentsState?.paired_server_url ?? "-"));
           if (!agentsState?.agent_enabled) {
-            body.append(el("div", "warn", t("agents.agentDisabled")));
+            pairedCard.append(el("div", "warn", t("agents.agentDisabled")));
           }
-          body.append(
+          pairedCard.append(
             kvRow(
               t("agents.pairExpiresAt"),
               agentsState?.pair_expires_at ? fmtDate(agentsState.pair_expires_at) : "-",
@@ -2177,33 +2237,26 @@ function render(): void {
           const syncHostBtn = el("button", "btn", t("agents.syncHostTypes"));
           syncHostBtn.addEventListener("click", () => void onSyncHostTypes());
           actions.append(syncHostBtn);
-          body.append(actions);
+          pairedCard.append(actions);
+          body.append(pairedCard);
         } else {
+          const pairCard = el("div", "agents-card");
           if (agentsState?.pair_expired) {
-            body.append(el("div", "warn", t("agents.pairExpired")));
+            pairCard.append(el("div", "warn", t("agents.pairExpired")));
           }
 
-          body.append(el("label", "custom-label", t("agents.serverUrl")));
-          const serverUrlInput = document.createElement("input");
-          serverUrlInput.className = "custom-input";
-          serverUrlInput.value = agentServerUrlInput;
-          serverUrlInput.placeholder = "https://server.example.com";
-          serverUrlInput.addEventListener("input", () => {
-            agentServerUrlInput = serverUrlInput.value;
+          pairCard.append(el("label", "custom-label", t("agents.pairToken")));
+          const pairTokenInput = document.createElement("textarea");
+          pairTokenInput.className = "custom-input agents-token-input";
+          pairTokenInput.rows = 4;
+          pairTokenInput.value = agentPairTokenInput;
+          pairTokenInput.placeholder = t("agents.pairTokenPlaceholder");
+          pairTokenInput.addEventListener("input", () => {
+            agentPairTokenInput = pairTokenInput.value;
           });
-          body.append(serverUrlInput);
+          pairCard.append(pairTokenInput);
 
-          body.append(el("label", "custom-label", t("agents.pairCode")));
-          const pairCodeInput = document.createElement("input");
-          pairCodeInput.className = "custom-input";
-          pairCodeInput.value = agentPairCodeInput;
-          pairCodeInput.placeholder = "ABCD-1234";
-          pairCodeInput.addEventListener("input", () => {
-            agentPairCodeInput = pairCodeInput.value;
-          });
-          body.append(pairCodeInput);
-
-          body.append(el("label", "custom-label", t("agents.pairDays")));
+          pairCard.append(el("label", "custom-label", t("agents.pairDays")));
           const pairDaysInput = document.createElement("input");
           pairDaysInput.className = "custom-input";
           pairDaysInput.type = "number";
@@ -2213,13 +2266,14 @@ function render(): void {
           pairDaysInput.addEventListener("input", () => {
             agentPairDaysInput = pairDaysInput.value;
           });
-          body.append(pairDaysInput);
+          pairCard.append(pairDaysInput);
 
           const actions = el("div", "actions");
           const pairBtn = el("button", "btn", t("agents.pairNow"));
           pairBtn.addEventListener("click", () => void onPairAsAgent(false));
           actions.append(pairBtn);
-          body.append(actions);
+          pairCard.append(actions);
+          body.append(pairCard);
         }
       }
     } else if (dialog === "types") {
@@ -2761,13 +2815,16 @@ function renderFindings(r: Report): HTMLElement {
     if (f.redacted_examples.length) {
       const ex = el("div", "examples");
       for (const [index, e] of f.redacted_examples.entries()) {
-        const key = exampleKey(f.category, index);
-        const maybeRaw = expandedRedacted.has(key) ? getRevealedValue(f.category, index) : null;
+        const key = exampleKey("builtin", f.category, index);
+        const maybeRaw = expandedRedacted.has(key)
+          ? (revealedExampleValues.get(key) ?? null)
+          : null;
         const chip = el("button", "example-toggle", maybeRaw ?? e);
+        (chip as HTMLButtonElement).disabled = !selectedFileId;
         chip.title = expandedRedacted.has(key) ? t("actions.hide") : t("actions.revealOne");
         chip.addEventListener("click", (ev) => {
           ev.preventDefault();
-          void toggleRedactedExample(f.category, index);
+          void toggleRedactedExample("builtin", f.category, index, e);
         });
         ex.append(chip);
       }
@@ -2783,8 +2840,19 @@ function renderFindings(r: Report): HTMLElement {
     box.append(title);
     if (f.redacted_examples.length) {
       const ex = el("div", "examples");
-      for (const e of f.redacted_examples) {
-        ex.append(el("code", "example", e));
+      for (const [index, e] of f.redacted_examples.entries()) {
+        const key = exampleKey("custom", f.category, index);
+        const maybeRaw = expandedRedacted.has(key)
+          ? (revealedExampleValues.get(key) ?? null)
+          : null;
+        const chip = el("button", "example-toggle", maybeRaw ?? e);
+        (chip as HTMLButtonElement).disabled = !selectedFileId;
+        chip.title = expandedRedacted.has(key) ? t("actions.hide") : t("actions.revealOne");
+        chip.addEventListener("click", (ev) => {
+          ev.preventDefault();
+          void toggleRedactedExample("custom", f.category, index, e);
+        });
+        ex.append(chip);
       }
       box.append(ex);
     }
@@ -2923,17 +2991,35 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     menuOpen = false;
     render();
     ev.preventDefault();
+    return;
+  }
+
+  if (scanMenuOpen) {
+    scanMenuOpen = false;
+    render();
+    ev.preventDefault();
   }
 }
 
 function onGlobalClick(ev: MouseEvent): void {
   const target = ev.target as HTMLElement | null;
   if (!target) return;
-  if (target.closest(".filter-dropdown")) return;
-  if (!riskFilterOpen && !typeFilterOpen) return;
-  riskFilterOpen = false;
-  typeFilterOpen = false;
-  render();
+  let shouldRender = false;
+
+  if (!target.closest(".filter-dropdown") && (riskFilterOpen || typeFilterOpen)) {
+    riskFilterOpen = false;
+    typeFilterOpen = false;
+    shouldRender = true;
+  }
+
+  if (!target.closest(".scan-split") && scanMenuOpen) {
+    scanMenuOpen = false;
+    shouldRender = true;
+  }
+
+  if (shouldRender) {
+    render();
+  }
 }
 
 async function main(): Promise<void> {

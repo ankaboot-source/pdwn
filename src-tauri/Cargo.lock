@@ -3416,6 +3416,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum 0.8.8",
+ "base64 0.22.1",
  "blake3",
  "calamine",
  "dirs 5.0.1",
