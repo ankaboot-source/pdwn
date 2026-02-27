@@ -1475,8 +1475,8 @@ function render(): void {
   scanBtn.addEventListener("click", () => void onScanFolders());
   scanWrap.append(scanBtn);
 
-  const scanToggleBtn = el("button", "btn scan-toggle", "▾") as HTMLButtonElement;
-  scanToggleBtn.title = t("actions.scan");
+  const scanToggleBtn = el("button", "btn scan-toggle") as HTMLButtonElement;
+  scanToggleBtn.title = t("actions.scanOptions");
   scanToggleBtn.disabled = isScanning;
   scanToggleBtn.addEventListener("click", (ev) => {
     ev.preventDefault();
@@ -1786,7 +1786,7 @@ function render(): void {
   const list = el("div", "alert-list");
   const visible = visibleAlerts();
   if (visible.length === 0) {
-    list.append(el("div", "empty", t("alerts.empty")));
+    list.append(renderOnDemandDropzone());
   } else {
     for (const itemData of visible) {
       const isLocal = itemData.kind === "local";
@@ -1858,11 +1858,9 @@ function render(): void {
     const body = el("div", "report");
     if (reportLoadError) {
       body.append(el("div", "warn", t("report.loadError", { error: reportLoadError })));
-      if (!selectedReport) {
-        body.append(renderOnDemandDropzone());
-      }
-    } else if (!selectedReport) {
-      body.append(renderOnDemandDropzone());
+    }
+    if (!selectedReport) {
+      body.append(el("div", "empty", t("report.select")));
     } else {
       const r = selectedReport;
       const persistedReport = selectedFileId !== null;

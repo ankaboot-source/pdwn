@@ -220,6 +220,7 @@
     "scan": "Scannen",
     "scanFolders": "Ordner scannen",
     "scanFile": "Datei scannen",
+    "scanOptions": "Scan-Optionen",
     "scanRunning": "Scan lauft",
     "scanProgress": "Scanne {{processed}} / {{total}} Dateien",
     "stopScanConfirm": "Ein Scan lauft bereits. Jetzt stoppen?",

@@ -220,6 +220,7 @@
     "scan": "فحص",
     "scanFolders": "فحص المجلدات",
     "scanFile": "فحص ملف",
+    "scanOptions": "خيارات الفحص",
     "scanRunning": "الفحص جار",
     "scanProgress": "يتم فحص {{processed}} / {{total}} ملفات",
     "stopScanConfirm": "يوجد فحص جار. هل تريد ايقافه الان؟",

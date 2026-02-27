@@ -167,13 +167,36 @@ body {
 .scan-main {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .scan-toggle {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
-  min-width: 34px;
-  padding-inline: 8px;
+  min-width: 36px;
+  padding-inline: 0;
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scan-menu {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  z-index: 6;
+  display: grid;
+  gap: 4px;
+  min-width: 190px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(9, 18, 14, 0.96);
+  box-shadow: var(--shadow);
 }
 
 .scan-menu {
@@ -621,14 +644,15 @@ input[type="checkbox"] {
 }
 
 .kv-row-file .kv-v {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
-  word-break: break-word;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .kv-row-path .kv-v {
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   opacity: 0.84;
 }
 
