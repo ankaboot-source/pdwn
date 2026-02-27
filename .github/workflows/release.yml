@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   build-binaries:
@@ -72,6 +73,23 @@ jobs:
         with:
           path: release-assets
           merge-multiple: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd release-assets
+          sha256sum * | sort > SHA256SUMS.txt
+
+      - name: Sign checksum manifest
+        shell: bash
+        run: |
+          cosign sign-blob --yes \
+            --output-signature release-assets/SHA256SUMS.txt.sig \
+            --output-certificate release-assets/SHA256SUMS.txt.pem \
+            release-assets/SHA256SUMS.txt
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
