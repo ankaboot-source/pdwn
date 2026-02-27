@@ -47,9 +47,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets
-          shopt -s globstar nullglob
+          shopt -s nullglob
           matched=0
-          for file in src-tauri/target/release/bundle/**/${{ matrix.artifact_pattern }}; do
+          for file in src-tauri/target/release/bundle/${{ matrix.bundle }}/${{ matrix.artifact_pattern }}; do
             cp "$file" release-assets/
             matched=1
           done
