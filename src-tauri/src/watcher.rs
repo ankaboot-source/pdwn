@@ -200,6 +200,10 @@ async fn process_file(
         return Ok(());
     }
 
+    if crate::agents::is_agent_device_disabled(&state.db).await? {
+        return Ok(());
+    }
+
     let meta = std::fs::metadata(path)?;
     if !meta.is_file() {
         return Ok(());
@@ -224,7 +228,7 @@ async fn process_file(
         return Ok(());
     }
 
-    let custom_detectors = crate::yaml_custom_detectors(&state).await;
+    let custom_detectors = crate::yaml_custom_detectors(state).await;
     let entity_settings = state.db.get_entity_settings().await.unwrap_or_default();
 
     let scan = match scanner::scan_path_with_ignore_snapshot(
@@ -269,6 +273,8 @@ async fn process_file(
         return Ok(());
     }
 
+    crate::cache_scan_reveal_data(state, file_id, scan.reveal_cache.clone()).await;
+
     let suggestion = suggestion_for(&scan.risk_level);
     let _scan_id = state
         .db
@@ -289,6 +295,13 @@ async fn process_file(
 
     // Schedule reminders.
     schedule_reminders(&state.db, &settings, file_id, now).await?;
+
+    let db_for_upload = state.db.clone();
+    tokio::spawn(async move {
+        if let Err(error) = crate::agents::send_alert_if_agent(db_for_upload, file_id).await {
+            tracing::debug!(file_id, "agent alert upload skipped/failed: {}", error);
+        }
+    });
 
     // Emit alert event (frontend will show notification).
     let _ = app.emit("pdd:event", AppEvent::AlertCreated { file_id });

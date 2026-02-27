@@ -1,6 +1,7 @@
 use crate::settings::Settings;
 use crate::types::{
-    CustomDetector, EntitySetting, FileId, IgnoredValuesSnapshot, NewCustomDetector, Reason, Report, RiskLevel, UiAlert,
+    CustomDetector, EntitySetting, FileId, IgnoredValuesSnapshot, NewCustomDetector, Reason,
+    Report, RiskLevel, UiAlert,
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -357,6 +358,35 @@ impl Db {
             return Ok(Some(settings));
         }
         Ok(None)
+    }
+
+    pub async fn set_kv(&self, key: &str, value: &str) -> Result<()> {
+        let conn = self.conn.lock().await;
+        conn.execute(
+            "INSERT INTO kv(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            params![key, value],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_kv(&self, key: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().await;
+        let mut rows = conn
+            .query("SELECT value FROM kv WHERE key=?", params![key])
+            .await?;
+        if let Some(row) = rows.next().await? {
+            let value: String = row.get(0)?;
+            return Ok(Some(value));
+        }
+        Ok(None)
+    }
+
+    pub async fn delete_kv(&self, key: &str) -> Result<()> {
+        let conn = self.conn.lock().await;
+        conn.execute("DELETE FROM kv WHERE key=?", params![key])
+            .await?;
+        Ok(())
     }
 
     pub async fn upsert_file(&self, path: &str, size: i64, mtime: i64, now: i64) -> Result<FileId> {

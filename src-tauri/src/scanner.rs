@@ -7,9 +7,10 @@ use crate::zip_inspect::{inspect_zip_encryption, ZipEncryption};
 use anyhow::{Context, Result};
 use calamine::{Reader, Xls, Xlsx};
 use serde_json::json;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::{Read, Seek};
+use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 use zip::ZipArchive;
 
@@ -97,10 +98,16 @@ fn scan_path_blocking_with_ignore(
                 .cloned()
                 .collect();
             if !filtered_values.is_empty() {
-                matches.entry(cat.clone()).or_default().extend(filtered_values);
+                matches
+                    .entry(cat.clone())
+                    .or_default()
+                    .extend(filtered_values);
             }
         } else {
-            matches.entry(cat.clone()).or_default().extend(values.clone());
+            matches
+                .entry(cat.clone())
+                .or_default()
+                .extend(values.clone());
         }
     }
     reasons.extend(file_name_matches.filename_reasons);
@@ -141,6 +148,7 @@ fn scan_path_blocking_with_ignore(
             custom_findings: vec![],
             weak_zip_encryption: false,
             revealed: None,
+            reveal_cache: crate::types::RevealCache::default(),
         });
     }
 
@@ -158,15 +166,19 @@ fn scan_path_blocking_with_ignore(
             custom_score_and_reasons(&custom_findings, custom_detectors);
         reasons.append(&mut custom_reasons);
         let score = score + custom_score;
-        let risk_level = pii::risk_level_from_score(score);
+        let findings = pii::summarize_matches(&matches, true);
+        let (max_level, high_type_count) =
+            overall_risk_evidence(&findings, &custom_findings, custom_detectors, false);
+        let risk_level = pii::risk_level_from_evidence(score, max_level, high_type_count);
         return Ok(ScanSummary {
             risk_level,
             risk_score: score,
             reasons,
-            findings: pii::summarize_matches(&matches, true),
+            findings,
             custom_findings,
             weak_zip_encryption: false,
             revealed: None,
+            reveal_cache: build_reveal_cache(&matches, &custom_matches),
         });
     }
 
@@ -269,14 +281,21 @@ fn scan_path_blocking_with_ignore(
         custom_score_and_reasons(&custom_findings, custom_detectors);
     reasons.append(&mut custom_reasons);
     let score = builtin_score + custom_score;
-    let risk_level = pii::risk_level_from_score(score);
     let findings = pii::summarize_matches(&matches, true);
+    let (max_level, high_type_count) = overall_risk_evidence(
+        &findings,
+        &custom_findings,
+        custom_detectors,
+        weak_zip_encryption,
+    );
+    let risk_level = pii::risk_level_from_evidence(score, max_level, high_type_count);
 
     let revealed = if mode == ScanMode::Reveal {
         Some(pii::reveal_matches(&matches))
     } else {
         None
     };
+    let reveal_cache = build_reveal_cache(&matches, &custom_matches);
 
     Ok(ScanSummary {
         risk_level,
@@ -286,7 +305,41 @@ fn scan_path_blocking_with_ignore(
         custom_findings,
         weak_zip_encryption,
         revealed,
+        reveal_cache,
     })
+}
+
+fn build_reveal_cache(
+    matches: &BTreeMap<PiiCategory, Vec<String>>,
+    custom_matches: &BTreeMap<String, Vec<String>>,
+) -> crate::types::RevealCache {
+    let mut out = crate::types::RevealCache::default();
+
+    for (cat, values) in matches {
+        let cat_key = serde_json::to_string(cat)
+            .unwrap_or_else(|_| "unknown".to_string())
+            .trim_matches('"')
+            .to_string();
+        let pairs = out.by_category.entry(cat_key).or_default();
+        for value in values {
+            pairs.push(crate::types::RevealPair {
+                redacted: pii::redact_value(cat.clone(), value),
+                clear: value.clone(),
+            });
+        }
+    }
+
+    for (cat, values) in custom_matches {
+        let pairs = out.by_category.entry(cat.clone()).or_default();
+        for value in values {
+            pairs.push(crate::types::RevealPair {
+                redacted: pii::redact_value(crate::types::PiiCategory::UserId, value),
+                clear: value.clone(),
+            });
+        }
+    }
+
+    out
 }
 
 fn merge_matches(
@@ -386,6 +439,59 @@ fn custom_score_and_reasons(
     (score, reasons)
 }
 
+fn overall_risk_evidence(
+    findings: &[crate::types::PiiFinding],
+    custom_findings: &[crate::types::CustomFinding],
+    detectors: &[CustomDetector],
+    weak_zip_encryption: bool,
+) -> (RiskLevel, usize) {
+    let risk_by_name: BTreeMap<&str, RiskLevel> = detectors
+        .iter()
+        .map(|d| (d.name.as_str(), d.risk_level))
+        .collect();
+
+    let mut max_level = RiskLevel::Low;
+    let mut high_types: BTreeSet<String> = BTreeSet::new();
+
+    for finding in findings {
+        if finding.count == 0 {
+            continue;
+        }
+        let level = pii::builtin_risk_level(&finding.category);
+        if level > max_level {
+            max_level = level;
+        }
+        if level >= RiskLevel::High {
+            high_types.insert(format!("{:?}", finding.category));
+        }
+    }
+
+    for finding in custom_findings {
+        if finding.count == 0 {
+            continue;
+        }
+        let level = risk_by_name
+            .get(finding.category.as_str())
+            .copied()
+            .unwrap_or(RiskLevel::Medium);
+        if level > max_level {
+            max_level = level;
+        }
+        if level >= RiskLevel::High {
+            high_types.insert(finding.category.clone());
+        }
+    }
+
+    if weak_zip_encryption {
+        if RiskLevel::High > max_level {
+            max_level = RiskLevel::High;
+        }
+        high_types.insert("weak_archive_encryption".to_string());
+    }
+
+    (max_level, high_types.len())
+}
+
 fn custom_risk_weight(level: &RiskLevel) -> i64 {
     match level {
         RiskLevel::Low => 2,
@@ -465,7 +571,11 @@ fn scan_image_with_optional_ocr(path: &Path, max_bytes: u64) -> Result<String> {
 }
 
 fn scan_pdf_text(path: &Path, max_bytes: u64) -> Result<String> {
-    let mut text = pdf_extract::extract_text(path).context("extract pdf text")?;
+    let extracted = panic::catch_unwind(AssertUnwindSafe(|| pdf_extract::extract_text(path)));
+    let mut text = match extracted {
+        Ok(result) => result.context("extract pdf text")?,
+        Err(_) => anyhow::bail!("extract pdf text panicked"),
+    };
     if text.len() > max_bytes as usize {
         text.truncate(max_bytes as usize);
     }

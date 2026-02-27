@@ -13,26 +13,44 @@ import legalMarkdown from "./content/legal.md?raw";
 import dependenciesMarkdown from "./content/third-party-notices.md?raw";
 
 import {
+  type AgentsMode,
+  type AgentsState,
   type Report,
+  type ServerAlert,
+  type ServerDevice,
   type Settings,
   type TypeDefinition,
   type UiAlert,
   clearAlerts,
+  createServerPairCode,
   deleteFileToTrash,
+  getAgentsState,
   getReport,
+  getServerHostTypesYaml,
   getSettings,
   ignoreFile,
   ignoreValue,
   listAlerts,
+  listServerAlerts,
+  listServerDevices,
   listTypeDefinitions,
   neutralizeFile,
   openInFileManager,
+  pairAsAgent,
   reloadTypeCatalog,
+  revealRedactedValue,
   scanNow,
+  scanPathOnDemand as scanPathOnDemandApi,
+  setAgentsMode,
+  setServerDeviceEnabled,
+  setServerHostTypesYaml,
   setSettings,
   stopScan,
+  syncHostTypesFromServer,
   unignoreFile,
   unignoreValue,
+  unpairAgent,
+  unpairServerDevice,
   upsertCustomTypeDefinition,
 } from "./api";
 import { getLanguage, initI18n, onLanguageChanged, t } from "./i18n";
@@ -61,23 +79,35 @@ let revealLoading = false;
 let neutralizeLoading = false;
 let reportPanelVisible = true;
 let reportLoadError: string | null = null;
+let onDemandScanLoading = false;
+let reportDropActive = false;
 const selectedRiskFilters = new Set<UiAlert["risk_level"]>();
 const selectedTypeFilters = new Set<string>();
+let selectedDeviceFilter = "all";
 let riskFilterOpen = false;
 let typeFilterOpen = false;
 let sortBy: SortMode = "risk_desc";
 let showIgnored = false;
 let isScanning = false;
 let scanProgress: { processed: number; total: number } | null = null;
+let scanMenuOpen = false;
 let menuOpen = false;
-let dialog: "about" | "types" | null = null;
+let dialog: "about" | "types" | "agents" | null = null;
 let aboutTab: "about" | "legal" = "about";
 let legalDependenciesVisible = false;
-let typesTab: "standard" | "regional" | "custom" = "standard";
+let typesTab: "standard" | "regional" | "host" | "custom" = "standard";
 let typeDefinitions: TypeDefinition[] = [];
 let typeDefinitionsLoading = false;
 let typeDefinitionsLoaded = false;
 let typeDefinitionsError: string | null = null;
+let agentsState: AgentsState | null = null;
+let agentsLoading = false;
+let agentsError: string | null = null;
+let serverDevices: ServerDevice[] = [];
+let serverAlerts: ServerAlert[] = [];
+let serverHostTypesYaml = "types: []\n";
+let agentPairTokenInput = "";
+let agentPairDaysInput = "14";
 let typeModal: {
   mode: "view" | "create" | "edit";
   draft: TypeDefinition;
@@ -90,6 +120,7 @@ let debugMode = false;
 let confirmAction: ConfirmAction | null = null;
 
 const expandedRedacted = new Set<string>();
+const revealedExampleValues = new Map<string, string>();
 let alertsListScrollTop = 0;
 
 type SortMode = "risk_desc" | "risk_asc" | "recent" | "type";
@@ -123,27 +154,8 @@ function withIcon(icon: string, text: string): string {
   return `${icon} ${text}`;
 }
 
-function exampleKey(category: string, index: number): string {
-  return `${category}:${index}`;
-}
-
-function getRevealedValue(category: string, index: number): string | null {
-  const byCategory = selectedReport?.revealed?.by_category ?? [];
-  const match = byCategory.find((c) => c.category === category);
-  return match?.values[index]?.value ?? null;
-}
-
-async function ensureRevealLoadedForExamples(): Promise<boolean> {
-  if (!selectedFileId) return false;
-  if (selectedReport?.revealed?.by_category?.length) return true;
-  try {
-    selectedReport = await getReport(selectedFileId, true);
-    reportLoadError = null;
-    return true;
-  } catch (error) {
-    reportLoadError = error instanceof Error ? error.message : String(error);
-    return false;
-  }
+function exampleKey(scope: "builtin" | "custom", category: string, index: number): string {
+  return `${scope}:${category}:${index}`;
 }
 
 function canRevealReport(r: Report): boolean {
@@ -189,6 +201,172 @@ async function onScanNow(): Promise<void> {
     isScanning = false;
     render();
   }
+}
+
+async function onScanFolders(): Promise<void> {
+  scanMenuOpen = false;
+  await onScanNow();
+}
+
+function normalizePathForCompare(path: string): string {
+  const normalized = path.trim().replace(/\\/g, "/");
+  if (/^[A-Za-z]:\//.test(normalized)) {
+    return normalized.toLowerCase();
+  }
+  return normalized;
+}
+
+function filePathFromUri(raw: string): string | null {
+  if (!raw.startsWith("file://")) return null;
+  try {
+    const url = new URL(raw);
+    let pathname = decodeURIComponent(url.pathname);
+    if (/^\/[A-Za-z]:\//.test(pathname)) {
+      pathname = pathname.slice(1);
+    }
+    return pathname;
+  } catch {
+    return null;
+  }
+}
+
+function extractDroppedFilePath(ev: DragEvent): string | null {
+  const data = ev.dataTransfer;
+  if (!data) return null;
+
+  const files = data.files;
+  if (files.length > 0) {
+    const file = files[0] as File & { path?: string };
+    if (typeof file.path === "string" && file.path.trim().length > 0) {
+      return file.path;
+    }
+  }
+
+  const uriList = data.getData("text/uri-list").trim();
+  if (uriList.length > 0) {
+    for (const line of uriList.split(/\r?\n/)) {
+      const candidate = line.trim();
+      if (!candidate || candidate.startsWith("#")) continue;
+      const fromUri = filePathFromUri(candidate);
+      if (fromUri) return fromUri;
+    }
+  }
+
+  const plainText = data.getData("text/plain").trim();
+  if (plainText.length > 0) {
+    const fromUri = filePathFromUri(plainText);
+    if (fromUri) return fromUri;
+    if (plainText.startsWith("/") || /^[A-Za-z]:[\\/]/.test(plainText)) {
+      return plainText;
+    }
+  }
+
+  return null;
+}
+
+async function onScanPathOnDemand(path: string): Promise<void> {
+  const normalizedPath = path.trim();
+  if (!normalizedPath) {
+    reportLoadError = t("report.dropInvalid");
+    render();
+    return;
+  }
+
+  const existingAlert = alerts.find(
+    (alert) => normalizePathForCompare(alert.path) === normalizePathForCompare(normalizedPath),
+  );
+  if (existingAlert) {
+    await selectFile(existingAlert.file_id);
+    return;
+  }
+
+  reportPanelVisible = true;
+  selectedFileId = null;
+  selectedReport = null;
+  showRevealed = false;
+  revealLoading = false;
+  neutralizeLoading = false;
+  expandedRedacted.clear();
+  revealedExampleValues.clear();
+  reportLoadError = null;
+  onDemandScanLoading = true;
+  reportDropActive = false;
+  render();
+
+  try {
+    selectedReport = await scanPathOnDemandApi(normalizedPath);
+  } catch (error) {
+    reportLoadError = error instanceof Error ? error.message : String(error);
+  } finally {
+    onDemandScanLoading = false;
+    render();
+  }
+}
+
+async function onPickFileForOnDemandScan(): Promise<void> {
+  scanMenuOpen = false;
+  const selected = await open({
+    directory: false,
+    multiple: false,
+    title: t("report.dropBrowse"),
+  });
+  const value = Array.isArray(selected) ? selected[0] : selected;
+  if (!value) return;
+  await onScanPathOnDemand(value);
+}
+
+function renderOnDemandDropzone(): HTMLElement {
+  const wrap = el("div", "report-dropzone-wrap");
+  const zone = el("div", `report-dropzone${reportDropActive ? " is-active" : ""}`);
+  zone.append(el("div", "report-dropzone-title", t("report.dropTitle")));
+  zone.append(el("div", "report-dropzone-body", t("report.dropBody")));
+
+  const browseBtn = el("button", "btn btn-mini", t("report.dropBrowse")) as HTMLButtonElement;
+  browseBtn.disabled = onDemandScanLoading;
+  browseBtn.addEventListener("click", () => void onPickFileForOnDemandScan());
+  zone.append(browseBtn);
+
+  if (onDemandScanLoading) {
+    const loading = el("div", "report-dropzone-loading");
+    loading.append(el("span", "spinner"));
+    loading.append(document.createTextNode(t("report.dropLoading")));
+    zone.append(loading);
+  }
+
+  zone.addEventListener("dragenter", (ev) => {
+    ev.preventDefault();
+    reportDropActive = true;
+    render();
+  });
+  zone.addEventListener("dragover", (ev) => {
+    ev.preventDefault();
+    if (!reportDropActive) {
+      reportDropActive = true;
+      render();
+    }
+  });
+  zone.addEventListener("dragleave", (ev) => {
+    const relatedTarget = ev.relatedTarget as Node | null;
+    if (relatedTarget && zone.contains(relatedTarget)) {
+      return;
+    }
+    reportDropActive = false;
+    render();
+  });
+  zone.addEventListener("drop", (ev) => {
+    ev.preventDefault();
+    reportDropActive = false;
+    const droppedPath = extractDroppedFilePath(ev);
+    if (!droppedPath) {
+      reportLoadError = t("report.dropInvalid");
+      render();
+      return;
+    }
+    void onScanPathOnDemand(droppedPath);
+  });
+
+  wrap.append(zone);
+  return wrap;
 }
 
 async function saveWatchedDirectories(dirs: string[]): Promise<void> {
@@ -263,19 +441,41 @@ async function removeWatchedDirectory(index: number): Promise<void> {
   await saveWatchedDirectories(dirs);
 }
 
-async function toggleRedactedExample(category: string, index: number): Promise<void> {
-  const key = exampleKey(category, index);
+async function toggleRedactedExample(
+  scope: "builtin" | "custom",
+  category: string,
+  index: number,
+  redactedValue: string,
+): Promise<void> {
+  const key = exampleKey(scope, category, index);
   if (expandedRedacted.has(key)) {
     expandedRedacted.delete(key);
+    revealedExampleValues.delete(key);
     render();
     return;
   }
-  const ready = await ensureRevealLoadedForExamples();
-  if (!ready) {
+
+  if (!selectedFileId || revealLoading) {
     render();
     return;
   }
-  if (getRevealedValue(category, index)) {
+
+  revealLoading = true;
+  render();
+  try {
+    const clearValue = await revealRedactedValue(selectedFileId, category, redactedValue);
+    if (clearValue) {
+      revealedExampleValues.set(key, clearValue);
+      expandedRedacted.add(key);
+    }
+    reportLoadError = null;
+  } catch (error) {
+    reportLoadError = error instanceof Error ? error.message : String(error);
+  } finally {
+    revealLoading = false;
+  }
+
+  if (revealedExampleValues.get(key)) {
     expandedRedacted.add(key);
   }
   render();
@@ -418,6 +618,7 @@ function typeOriginLabel(origin: string): string {
   const map: Record<string, string> = {
     "standard/base": t("types.origin.base"),
     "standard/locale": t("types.origin.locale"),
+    host: t("types.origin.host"),
     custom: t("types.origin.custom"),
   };
   return map[origin] ?? origin;
@@ -449,7 +650,7 @@ function currentRuntimeLocale(): string {
   return locale.replace("_", "-");
 }
 
-function typesForTab(tab: "standard" | "regional" | "custom"): TypeDefinition[] {
+function typesForTab(tab: "standard" | "regional" | "host" | "custom"): TypeDefinition[] {
   if (tab === "standard") {
     return typeDefinitions.filter((d) => d.origin === "standard/base" && !d.locale_requirement);
   }
@@ -459,6 +660,9 @@ function typesForTab(tab: "standard" | "regional" | "custom"): TypeDefinition[] 
         (d.origin === "standard/locale" || Boolean(d.locale_requirement)) &&
         localeRequirementMatches(d.locale_requirement),
     );
+  }
+  if (tab === "host") {
+    return typeDefinitions.filter((d) => d.origin === "host");
   }
   return typeDefinitions.filter((d) => d.origin === "custom");
 }
@@ -644,44 +848,98 @@ function summarizeTypes(a: UiAlert | Report): string {
   return parts.join(", ");
 }
 
-function alertHasType(a: UiAlert, type: string): boolean {
-  if (type === "weak_archive_encryption") return a.weak_zip_encryption;
+type AlertListItem = { kind: "local"; local: UiAlert } | { kind: "server"; remote: ServerAlert };
+
+function isServerMode(): boolean {
+  return agentsState?.mode === "server";
+}
+
+function isAgentPaired(): boolean {
   return (
-    a.pii_summary.some((f) => f.category === type && f.count > 0) ||
-    a.custom_summary.some((f) => f.category === type && f.count > 0)
+    agentsState?.mode === "agent" &&
+    Boolean(agentsState.paired_server_url) &&
+    !agentsState.pair_expired
   );
 }
 
-function primaryType(a: UiAlert): string {
-  if (a.weak_zip_encryption) return piiLabel("weak_archive_encryption");
-  const top = [...a.pii_summary]
-    .filter((f) => f.count > 0 && f.category !== "file_name_signal")
-    .sort((x, y) => y.count - x.count)[0];
-  if (!top) return piiLabel("file_name_signal");
-  return piiLabel(top.category);
+function alertHasType(item: AlertListItem, type: string): boolean {
+  if (item.kind === "local") {
+    if (type === "weak_archive_encryption") return item.local.weak_zip_encryption;
+    return (
+      item.local.pii_summary.some((f) => f.category === type && f.count > 0) ||
+      item.local.custom_summary.some((f) => f.category === type && f.count > 0)
+    );
+  }
+  if (type === "weak_archive_encryption") {
+    return item.remote.types.includes(type);
+  }
+  return item.remote.types.includes(type);
 }
 
-function visibleAlerts(): UiAlert[] {
-  let items = alerts.filter((a) => (showIgnored ? true : !a.ignored));
+function primaryType(item: AlertListItem): string {
+  if (item.kind === "local") {
+    if (item.local.weak_zip_encryption) return piiLabel("weak_archive_encryption");
+    const top = [...item.local.pii_summary]
+      .filter((f) => f.count > 0 && f.category !== "file_name_signal")
+      .sort((x, y) => y.count - x.count)[0];
+    if (!top) return piiLabel("file_name_signal");
+    return piiLabel(top.category);
+  }
+  const first = item.remote.types[0];
+  if (!first) return "-";
+  return categoryLabel(first);
+}
+
+function alertRisk(item: AlertListItem): UiAlert["risk_level"] {
+  if (item.kind === "local") {
+    return item.local.risk_level;
+  }
+  const raw = item.remote.risk_level as UiAlert["risk_level"];
+  return raw;
+}
+
+function alertTime(item: AlertListItem): number {
+  return item.kind === "local" ? item.local.last_seen_at : item.remote.received_at;
+}
+
+function alertDeviceLabel(item: AlertListItem): string {
+  return item.kind === "local" ? t("alerts.local") : item.remote.device_name;
+}
+
+function visibleAlerts(): AlertListItem[] {
+  let items: AlertListItem[] = alerts
+    .filter((a) => (showIgnored ? true : !a.ignored))
+    .map((a) => ({ kind: "local", local: a }));
+  if (isServerMode()) {
+    items = items.concat(serverAlerts.map((a) => ({ kind: "server", remote: a })));
+  }
 
   if (selectedRiskFilters.size > 0) {
-    items = items.filter((a) => selectedRiskFilters.has(a.risk_level));
+    items = items.filter((a) => selectedRiskFilters.has(alertRisk(a)));
   }
   if (selectedTypeFilters.size > 0) {
     items = items.filter((a) =>
       Array.from(selectedTypeFilters).some((selectedType) => alertHasType(a, selectedType)),
     );
   }
+  if (isServerMode() && selectedDeviceFilter !== "all") {
+    items = items.filter((a) => {
+      if (selectedDeviceFilter === "local") {
+        return a.kind === "local";
+      }
+      return a.kind === "server" && a.remote.device_id === selectedDeviceFilter;
+    });
+  }
 
   items = [...items].sort((a, b) => {
     if (sortBy === "risk_desc") {
-      return riskRank(b.risk_level) - riskRank(a.risk_level) || b.last_seen_at - a.last_seen_at;
+      return riskRank(alertRisk(b)) - riskRank(alertRisk(a)) || alertTime(b) - alertTime(a);
     }
     if (sortBy === "risk_asc") {
-      return riskRank(a.risk_level) - riskRank(b.risk_level) || b.last_seen_at - a.last_seen_at;
+      return riskRank(alertRisk(a)) - riskRank(alertRisk(b)) || alertTime(b) - alertTime(a);
     }
     if (sortBy === "recent") {
-      return b.last_seen_at - a.last_seen_at;
+      return alertTime(b) - alertTime(a);
     }
     return primaryType(a).localeCompare(primaryType(b));
   });
@@ -832,6 +1090,11 @@ async function openAgplLicense(): Promise<void> {
 async function refreshAlerts(): Promise<void> {
   debugLog("refreshAlerts:start");
   alerts = await listAlerts();
+  if (isServerMode()) {
+    serverAlerts = await listServerAlerts(200);
+  } else {
+    serverAlerts = [];
+  }
   debugLog("refreshAlerts:done", { count: alerts.length });
   if (selectedFileId && !alerts.find((a) => a.file_id === selectedFileId)) {
     selectedFileId = null;
@@ -870,6 +1133,180 @@ async function refreshTypeDefinitions(): Promise<void> {
   render();
 }
 
+async function refreshAgentsState(): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    agentsState = await getAgentsState();
+    await refreshServerPanelData();
+  } catch (error) {
+    agentsState = null;
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function refreshServerPanelData(): Promise<void> {
+  if (agentsState?.mode !== "server") {
+    serverDevices = [];
+    serverAlerts = [];
+    serverHostTypesYaml = "types: []\n";
+    return;
+  }
+
+  try {
+    const [devices, alerts, hostYaml] = await Promise.all([
+      listServerDevices(),
+      listServerAlerts(50),
+      getServerHostTypesYaml(),
+    ]);
+    serverDevices = devices;
+    serverAlerts = alerts;
+    serverHostTypesYaml = hostYaml;
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
+  }
+}
+
+async function onSetAgentsMode(mode: AgentsMode): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    agentsState = await setAgentsMode(mode);
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    await refreshServerPanelData();
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function onCreateServerCode(): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    agentsState = await createServerPairCode(30);
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    await refreshServerPanelData();
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function onPairAsAgent(confirmInternet: boolean): Promise<void> {
+  const days = Number.parseInt(agentPairDaysInput, 10);
+  const validDays = Number.isFinite(days) ? Math.min(180, Math.max(1, days)) : 14;
+
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    agentsState = await pairAsAgent(agentPairTokenInput, confirmInternet, validDays);
+    await syncHostTypesFromServer();
+    await refreshTypeDefinitions();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("internet_confirmation_required") && !confirmInternet) {
+      const approved = window.confirm(t("agents.internetConfirm"));
+      if (approved) {
+        agentsLoading = false;
+        render();
+        await onPairAsAgent(true);
+        return;
+      }
+      agentsError = t("agents.internetDeclined");
+    } else {
+      agentsError = message;
+    }
+  } finally {
+    await refreshServerPanelData();
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function onUnpairAgent(): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    agentsState = await unpairAgent();
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    await refreshServerPanelData();
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function onToggleServerDevice(deviceId: string, enabled: boolean): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    await setServerDeviceEnabled(deviceId, enabled);
+    await refreshServerPanelData();
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function onUnpairServerDevice(deviceId: string): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    await unpairServerDevice(deviceId);
+    await refreshServerPanelData();
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function onSaveServerHostTypes(): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    await setServerHostTypesYaml(serverHostTypesYaml);
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    agentsLoading = false;
+    render();
+  }
+}
+
+async function onSyncHostTypes(): Promise<void> {
+  agentsLoading = true;
+  agentsError = null;
+  render();
+  try {
+    await syncHostTypesFromServer();
+    await refreshTypeDefinitions();
+  } catch (error) {
+    agentsError = error instanceof Error ? error.message : String(error);
+  } finally {
+    agentsLoading = false;
+    render();
+  }
+}
+
 async function selectFile(fileId: number): Promise<void> {
   debugLog("selectFile:start", { fileId });
   reportPanelVisible = true;
@@ -877,7 +1314,10 @@ async function selectFile(fileId: number): Promise<void> {
   showRevealed = false;
   revealLoading = false;
   neutralizeLoading = false;
+  onDemandScanLoading = false;
+  reportDropActive = false;
   expandedRedacted.clear();
+  revealedExampleValues.clear();
   reportLoadError = null;
   try {
     selectedReport = await getReport(fileId, false);
@@ -970,6 +1410,7 @@ async function onConfirmAction(): Promise<void> {
         selectedReport = await getReport(action.fileId, false);
         showRevealed = false;
         expandedRedacted.clear();
+        revealedExampleValues.clear();
       }
     } catch (error) {
       reportLoadError = error instanceof Error ? error.message : String(error);
@@ -1018,7 +1459,8 @@ function render(): void {
     controls.append(debugBadge);
   }
 
-  const scanBtn = el("button", "btn");
+  const scanWrap = el("div", "scan-split");
+  const scanBtn = el("button", "btn scan-main");
   if (isScanning) {
     scanBtn.append(el("span", "spinner"));
     const p = scanProgress;
@@ -1027,16 +1469,47 @@ function render(): void {
       : t("actions.scanRunning");
   } else {
     scanBtn.append(el("span", "", "🔎"));
-    scanBtn.title = t("actions.scan");
+    scanBtn.title = t("actions.scanFolders");
   }
   scanBtn.append(document.createTextNode(` ${t("actions.scan")}`));
-  scanBtn.addEventListener("click", () => void onScanNow());
-  controls.append(scanBtn);
+  scanBtn.addEventListener("click", () => void onScanFolders());
+  scanWrap.append(scanBtn);
+
+  const scanToggleBtn = el("button", "btn scan-toggle", "▾") as HTMLButtonElement;
+  scanToggleBtn.title = t("actions.scan");
+  scanToggleBtn.disabled = isScanning;
+  scanToggleBtn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    scanMenuOpen = !scanMenuOpen;
+    if (scanMenuOpen) {
+      menuOpen = false;
+    }
+    render();
+  });
+  scanWrap.append(scanToggleBtn);
+
+  if (scanMenuOpen) {
+    const scanMenu = el("div", "scan-menu");
+    const scanFoldersBtn = el("button", "menu-item", t("actions.scanFolders"));
+    scanFoldersBtn.addEventListener("click", () => void onScanFolders());
+    scanMenu.append(scanFoldersBtn);
+
+    const scanFileBtn = el("button", "menu-item", t("actions.scanFile"));
+    scanFileBtn.addEventListener("click", () => void onPickFileForOnDemandScan());
+    scanMenu.append(scanFileBtn);
+    scanWrap.append(scanMenu);
+  }
+
+  controls.append(scanWrap);
 
   const menuBtn = el("button", "btn", "☰");
   menuBtn.title = t("menu.title");
   menuBtn.addEventListener("click", () => {
     menuOpen = !menuOpen;
+    if (menuOpen) {
+      scanMenuOpen = false;
+    }
     render();
   });
   controls.append(menuBtn);
@@ -1063,6 +1536,16 @@ function render(): void {
       render();
     });
     menu.append(customBtn);
+
+    const agentsBtn = el("button", "menu-item", t("menu.agents"));
+    agentsBtn.addEventListener("click", () => {
+      dialog = "agents";
+      menuOpen = false;
+      agentsError = null;
+      void refreshAgentsState();
+      render();
+    });
+    menu.append(agentsBtn);
 
     const clearBtn = el("button", "menu-item", t("menu.clearAll"));
     clearBtn.addEventListener("click", async () => {
@@ -1181,6 +1664,16 @@ function render(): void {
         .filter((c) => c && c.trim().length > 0),
     ),
   ).sort((a, b) => a.localeCompare(b));
+  if (isServerMode()) {
+    for (const alert of serverAlerts) {
+      for (const type of alert.types) {
+        if (!isBuiltinCategory(type) && !customTypeOptions.includes(type)) {
+          customTypeOptions.push(type);
+        }
+      }
+    }
+    customTypeOptions.sort((a, b) => a.localeCompare(b));
+  }
   typeOptions.push(...customTypeOptions);
   if (typeFilterOpen) {
     const menu = el("div", "filter-menu");
@@ -1249,6 +1742,45 @@ function render(): void {
   ignoredWrap.append(el("span", "filter-label", t("filters.showIgnored")));
   filters.append(ignoredWrap);
 
+  if (isServerMode()) {
+    const deviceWrap = el("label", "filter");
+    deviceWrap.append(el("span", "filter-label", t("filters.device")));
+    const deviceSelect = document.createElement("select");
+    const allOpt = document.createElement("option");
+    allOpt.value = "all";
+    allOpt.textContent = t("filters.all");
+    allOpt.selected = selectedDeviceFilter === "all";
+    deviceSelect.append(allOpt);
+
+    const localOpt = document.createElement("option");
+    localOpt.value = "local";
+    localOpt.textContent = t("alerts.local");
+    localOpt.selected = selectedDeviceFilter === "local";
+    deviceSelect.append(localOpt);
+
+    const devices = new Map<string, string>();
+    for (const a of serverAlerts) {
+      devices.set(a.device_id, a.device_name);
+    }
+    const sorted = Array.from(devices.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+    for (const [id, name] of sorted) {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = name;
+      opt.selected = selectedDeviceFilter === id;
+      deviceSelect.append(opt);
+    }
+
+    deviceSelect.addEventListener("change", () => {
+      selectedDeviceFilter = deviceSelect.value;
+      render();
+    });
+    deviceWrap.append(deviceSelect);
+    filters.append(deviceWrap);
+  } else {
+    selectedDeviceFilter = "all";
+  }
+
   left.append(filters);
 
   const list = el("div", "alert-list");
@@ -1256,27 +1788,48 @@ function render(): void {
   if (visible.length === 0) {
     list.append(el("div", "empty", t("alerts.empty")));
   } else {
-    for (const a of visible) {
+    for (const itemData of visible) {
+      const isLocal = itemData.kind === "local";
+      const fileId = isLocal ? itemData.local.file_id : null;
+      const path = isLocal ? itemData.local.path : itemData.remote.path;
+      const riskLevel = isLocal ? itemData.local.risk_level : alertRisk(itemData);
+      const ignored = isLocal ? itemData.local.ignored : false;
       const item = el("button", "alert-item");
-      item.dataset.fileId = String(a.file_id);
-      if (a.file_id === selectedFileId) item.dataset.selected = "true";
-      if (a.ignored) item.dataset.ignored = "true";
+      if (fileId !== null) {
+        item.dataset.fileId = String(fileId);
+      }
+      if (fileId !== null && fileId === selectedFileId) item.dataset.selected = "true";
+      if (ignored) item.dataset.ignored = "true";
+      if (!isLocal) {
+        (item as HTMLButtonElement).disabled = true;
+      }
 
       const topRow = el("div", "alert-top");
-      const nameEl = el("div", "alert-path", fileNameFromPath(a.path));
-      nameEl.title = a.path;
+      const nameEl = el("div", "alert-path", fileNameFromPath(path));
+      nameEl.title = path;
       topRow.append(nameEl);
 
-      const badge = el("div", `badge badge-${a.risk_level}`, riskLabel(a.risk_level));
+      const badge = el("div", `badge badge-${riskLevel}`, riskLabel(riskLevel));
       topRow.append(badge);
       item.append(topRow);
 
       const meta = el("div", "alert-meta");
-      meta.append(el("div", "alert-types", summarizeTypes(a) || piiLabel("file_name_signal")));
-      meta.append(el("div", "alert-age", fmtAge(a.last_seen_at)));
+      if (isLocal) {
+        meta.append(
+          el("div", "alert-types", summarizeTypes(itemData.local) || piiLabel("file_name_signal")),
+        );
+      } else {
+        meta.append(el("div", "alert-types", itemData.remote.types.join(", ") || "-"));
+      }
+      meta.append(el("div", "alert-age", fmtAge(alertTime(itemData))));
+      if (!isLocal && isServerMode()) {
+        meta.append(el("div", "alert-age", `${t("alerts.device")}: ${alertDeviceLabel(itemData)}`));
+      }
       item.append(meta);
 
-      item.addEventListener("click", () => void selectFile(a.file_id));
+      if (fileId !== null) {
+        item.addEventListener("click", () => void selectFile(fileId));
+      }
       list.append(item);
     }
   }
@@ -1293,8 +1846,11 @@ function render(): void {
       selectedReport = null;
       showRevealed = false;
       neutralizeLoading = false;
+      onDemandScanLoading = false;
+      reportDropActive = false;
       reportLoadError = null;
       expandedRedacted.clear();
+      revealedExampleValues.clear();
       render();
     });
     reportHeader.append(closeReportBtn);
@@ -1302,10 +1858,14 @@ function render(): void {
     const body = el("div", "report");
     if (reportLoadError) {
       body.append(el("div", "warn", t("report.loadError", { error: reportLoadError })));
+      if (!selectedReport) {
+        body.append(renderOnDemandDropzone());
+      }
     } else if (!selectedReport) {
-      body.append(el("div", "empty", t("report.select")));
+      body.append(renderOnDemandDropzone());
     } else {
       const r = selectedReport;
+      const persistedReport = selectedFileId !== null;
       const meta = el("div", "report-meta");
       const metaLeft = el("div", "report-meta-left");
       metaLeft.append(kvRow(t("report.fileName"), fileNameFromPath(r.path), "kv-row-file"));
@@ -1327,10 +1887,8 @@ function render(): void {
       body.append(el("h3", "sub", t("report.findings")));
       body.append(renderFindings(r));
 
-      body.append(el("h3", "sub", t("report.reasons")));
-      const reasons = el("ul", "reasons");
+      const reasonItems: string[] = [];
       for (const reason of r.reasons.slice(0, 12)) {
-        const li = document.createElement("li");
         const vars = { ...(reason.vars ?? {}) } as Record<string, unknown>;
         if (typeof vars.category === "string") {
           vars.category = piiLabel(vars.category);
@@ -1338,13 +1896,21 @@ function render(): void {
         if (typeof vars.risk === "string") {
           vars.risk = riskLabel(vars.risk as UiAlert["risk_level"]);
         }
-        li.textContent = t(reason.key, vars as never);
-        reasons.append(li);
+        const text = t(reason.key, vars as never).trim();
+        if (text.length > 0) {
+          reasonItems.push(text);
+        }
       }
-      body.append(reasons);
-
-      body.append(el("h3", "sub", t("report.suggestion")));
-      body.append(el("div", "suggestion", r.suggestion));
+      if (reasonItems.length > 0) {
+        body.append(el("h3", "sub", t("report.reasons")));
+        const reasons = el("ul", "reasons");
+        for (const text of reasonItems) {
+          const li = document.createElement("li");
+          li.textContent = text;
+          reasons.append(li);
+        }
+        body.append(reasons);
+      }
 
       const actions = el("div", "actions");
       const openFolderBtn = el("button", "btn", withIcon("📂", t("actions.openFolder")));
@@ -1382,10 +1948,13 @@ function render(): void {
           ? withIcon("✅", t("actions.unignore"))
           : withIcon("🚫", t("actions.ignore")),
       );
+      (ignoreBtn as HTMLButtonElement).disabled = !persistedReport;
       ignoreBtn.addEventListener("click", () => void onIgnoreToggle());
       actions.append(ignoreBtn);
 
       const revealAllowed = canRevealReport(r);
+      const hasAnyFinding =
+        r.findings.some((f) => f.count > 0) || r.custom_findings.some((f) => f.count > 0);
       const revealBtn = el(
         "button",
         "btn",
@@ -1399,10 +1968,11 @@ function render(): void {
       if (revealLoading) {
         revealBtn.prepend(el("span", "spinner"));
       }
-      (revealBtn as HTMLButtonElement).disabled = !revealAllowed || revealLoading;
+      (revealBtn as HTMLButtonElement).disabled =
+        !persistedReport || !revealAllowed || revealLoading;
       revealBtn.addEventListener("click", () => void toggleReveal());
       actions.append(revealBtn);
-      if (!revealAllowed) {
+      if (!revealAllowed && hasAnyFinding) {
         body.append(el("div", "empty", t("report.revealUnavailable")));
       }
 
@@ -1415,15 +1985,20 @@ function render(): void {
       if (neutralizeLoading) {
         neutralizeBtn.prepend(el("span", "spinner"));
       }
-      (neutralizeBtn as HTMLButtonElement).disabled = neutralizeLoading || !neutralizeAllowed;
+      (neutralizeBtn as HTMLButtonElement).disabled =
+        !persistedReport || neutralizeLoading || !neutralizeAllowed;
       neutralizeBtn.addEventListener("click", () => void onNeutralize());
       actions.append(neutralizeBtn);
 
       const deleteBtn = el("button", "btn danger", withIcon("🗑", t("actions.delete")));
+      (deleteBtn as HTMLButtonElement).disabled = !persistedReport;
       deleteBtn.addEventListener("click", () => void onDelete());
       actions.append(deleteBtn);
 
       body.append(actions);
+      if (!persistedReport) {
+        body.append(el("div", "empty", t("report.onDemandActionsUnavailable")));
+      }
     }
     right.append(body);
     main.append(right);
@@ -1435,7 +2010,13 @@ function render(): void {
     const overlay = el("div", "overlay");
     const card = el("div", "dialog");
     const head = el("div", "dialog-head");
-    head.append(el("h3", "dialog-title", dialog === "types" ? t("menu.types") : t("menu.about")));
+    const dialogTitle =
+      dialog === "types"
+        ? t("menu.types")
+        : dialog === "agents"
+          ? t("menu.agents")
+          : t("menu.about");
+    head.append(el("h3", "dialog-title", dialogTitle));
     const close = el("button", "btn btn-mini", withIcon("✕", t("common.close")));
     close.addEventListener("click", () => {
       dialog = null;
@@ -1445,6 +2026,9 @@ function render(): void {
     card.append(head);
 
     const body = el("div", "dialog-body");
+    if (dialog === "agents") {
+      body.classList.add("agents-body");
+    }
     if (dialog === "about") {
       const tabs = el("div", "dialog-tabs");
       const tAbout = el(
@@ -1500,6 +2084,198 @@ function render(): void {
         }
         body.append(actions);
       }
+    } else if (dialog === "agents") {
+      const modeTabs = el("div", "dialog-tabs");
+      const modeAgent = el(
+        "button",
+        `btn btn-mini ${agentsState?.mode !== "server" ? "active-tab" : ""}`,
+        t("agents.modeAgent"),
+      );
+      modeAgent.addEventListener("click", () => void onSetAgentsMode("agent"));
+      modeTabs.append(modeAgent);
+      const modeServer = el(
+        "button",
+        `btn btn-mini ${agentsState?.mode === "server" ? "active-tab" : ""}`,
+        t("agents.modeServer"),
+      );
+      modeServer.addEventListener("click", () => void onSetAgentsMode("server"));
+      modeTabs.append(modeServer);
+      body.append(modeTabs);
+
+      if (agentsLoading) {
+        body.append(el("div", "empty", t("agents.loading")));
+      }
+      if (agentsError) {
+        body.append(el("div", "warn", agentsError));
+      }
+
+      if (agentsState?.mode === "server") {
+        body.append(el("div", "suggestion", t("agents.serverHelp")));
+        const serverCard = el("div", "agents-card");
+        serverCard.append(
+          kvRow(t("agents.serverAddress"), agentsState.server_listen_addr ?? t("agents.loading")),
+        );
+        const code = agentsState.server_pair_code;
+        const expires = agentsState.server_pair_code_expires_at;
+        serverCard.append(
+          kvRow(
+            t("agents.serverCode"),
+            code ? t("agents.jwtReady") : t("agents.serverCodeMissing"),
+          ),
+        );
+        serverCard.append(
+          kvRow(
+            t("agents.serverCodeExpires"),
+            expires ? fmtDate(expires) : t("agents.serverCodeMissing"),
+          ),
+        );
+        const codeDisplay = document.createElement("textarea");
+        codeDisplay.className = "custom-input agents-token-input";
+        codeDisplay.rows = 4;
+        codeDisplay.readOnly = true;
+        codeDisplay.value = code ?? "";
+        serverCard.append(codeDisplay);
+        const actions = el("div", "actions");
+        const genBtn = el(
+          "button",
+          "btn",
+          code ? t("agents.regenerateCode") : t("agents.generateCode"),
+        );
+        genBtn.addEventListener("click", () => void onCreateServerCode());
+        actions.append(genBtn);
+        const copyBtn = el("button", "btn", t("agents.copyCode"));
+        (copyBtn as HTMLButtonElement).disabled = !code;
+        copyBtn.addEventListener("click", async () => {
+          if (!code) return;
+          await navigator.clipboard.writeText(code);
+        });
+        actions.append(copyBtn);
+        serverCard.append(actions);
+        body.append(serverCard);
+
+        body.append(el("h4", "entity-section-title", t("agents.devicesTitle")));
+        if (serverDevices.length === 0) {
+          body.append(el("div", "empty", t("agents.devicesEmpty")));
+        } else {
+          const devicesList = el("div", "type-list agents-card");
+          for (const device of serverDevices) {
+            const card = el("div", "report-meta");
+            const leftCol = el("div", "report-meta-left");
+            leftCol.append(kvRow(t("agents.deviceName"), device.device_name));
+            leftCol.append(kvRow(t("agents.deviceId"), device.device_id));
+            leftCol.append(kvRow(t("agents.devicePairedAt"), fmtDate(device.paired_at)));
+            leftCol.append(kvRow(t("agents.deviceExpiresAt"), fmtDate(device.expires_at)));
+            const rightCol = el("div", "report-meta-right");
+            rightCol.append(
+              kvRow(
+                t("agents.deviceLastSeen"),
+                device.last_seen_at ? fmtDate(device.last_seen_at) : t("agents.deviceNever"),
+              ),
+            );
+            rightCol.append(
+              kvRow(
+                t("agents.deviceStatus"),
+                device.enabled ? t("agents.deviceEnabled") : t("agents.deviceDisabled"),
+              ),
+            );
+            const rowActions = el("div", "actions");
+            const toggleBtn = el(
+              "button",
+              "btn btn-mini",
+              device.enabled ? t("agents.disableDevice") : t("agents.enableDevice"),
+            );
+            toggleBtn.addEventListener(
+              "click",
+              () => void onToggleServerDevice(device.device_id, !device.enabled),
+            );
+            rowActions.append(toggleBtn);
+            const unpairBtn = el("button", "btn btn-mini danger", t("agents.unpairDevice"));
+            unpairBtn.addEventListener("click", () => void onUnpairServerDevice(device.device_id));
+            rowActions.append(unpairBtn);
+            rightCol.append(rowActions);
+            card.append(leftCol, rightCol);
+            devicesList.append(card);
+          }
+          body.append(devicesList);
+        }
+
+        body.append(el("h4", "entity-section-title", t("agents.hostTypesTitle")));
+        const hostCard = el("div", "agents-card");
+        const hostTypesInput = document.createElement("textarea");
+        hostTypesInput.className = "custom-input agents-token-input";
+        hostTypesInput.rows = 8;
+        hostTypesInput.value = serverHostTypesYaml;
+        hostTypesInput.addEventListener("input", () => {
+          serverHostTypesYaml = hostTypesInput.value;
+        });
+        hostCard.append(hostTypesInput);
+        const hostActions = el("div", "actions");
+        const saveHostBtn = el("button", "btn", t("agents.saveHostTypes"));
+        saveHostBtn.addEventListener("click", () => void onSaveServerHostTypes());
+        hostActions.append(saveHostBtn);
+        hostCard.append(hostActions);
+        body.append(hostCard);
+      } else {
+        body.append(el("div", "suggestion", t("agents.agentHelp")));
+        const isPaired = isAgentPaired();
+        if (isPaired) {
+          const pairedCard = el("div", "agents-card");
+          pairedCard.append(kvRow(t("agents.pairedServer"), agentsState?.paired_server_url ?? "-"));
+          if (!agentsState?.agent_enabled) {
+            pairedCard.append(el("div", "warn", t("agents.agentDisabled")));
+          }
+          pairedCard.append(
+            kvRow(
+              t("agents.pairExpiresAt"),
+              agentsState?.pair_expires_at ? fmtDate(agentsState.pair_expires_at) : "-",
+            ),
+          );
+          const actions = el("div", "actions");
+          const unpairBtn = el("button", "btn danger", t("agents.unpair"));
+          unpairBtn.addEventListener("click", () => void onUnpairAgent());
+          actions.append(unpairBtn);
+          const syncHostBtn = el("button", "btn", t("agents.syncHostTypes"));
+          syncHostBtn.addEventListener("click", () => void onSyncHostTypes());
+          actions.append(syncHostBtn);
+          pairedCard.append(actions);
+          body.append(pairedCard);
+        } else {
+          const pairCard = el("div", "agents-card");
+          if (agentsState?.pair_expired) {
+            pairCard.append(el("div", "warn", t("agents.pairExpired")));
+          }
+
+          pairCard.append(el("label", "custom-label", t("agents.pairToken")));
+          const pairTokenInput = document.createElement("textarea");
+          pairTokenInput.className = "custom-input agents-token-input";
+          pairTokenInput.rows = 4;
+          pairTokenInput.value = agentPairTokenInput;
+          pairTokenInput.placeholder = t("agents.pairTokenPlaceholder");
+          pairTokenInput.addEventListener("input", () => {
+            agentPairTokenInput = pairTokenInput.value;
+          });
+          pairCard.append(pairTokenInput);
+
+          pairCard.append(el("label", "custom-label", t("agents.pairDays")));
+          const pairDaysInput = document.createElement("input");
+          pairDaysInput.className = "custom-input";
+          pairDaysInput.type = "number";
+          pairDaysInput.min = "1";
+          pairDaysInput.max = "180";
+          pairDaysInput.value = agentPairDaysInput;
+          pairDaysInput.addEventListener("input", () => {
+            agentPairDaysInput = pairDaysInput.value;
+          });
+          pairCard.append(pairDaysInput);
+
+          const actions = el("div", "actions");
+          const pairBtn = el("button", "btn", t("agents.pairNow"));
+          pairBtn.addEventListener("click", () => void onPairAsAgent(false));
+          actions.append(pairBtn);
+          pairCard.append(actions);
+          body.append(pairCard);
+        }
+      }
     } else if (dialog === "types") {
       const tabs = el("div", "dialog-tabs");
       const tCustom = el(
@@ -1534,6 +2310,22 @@ function render(): void {
         render();
       });
       tabs.append(tStandard);
+
+      const showHostTab = isAgentPaired();
+      if (showHostTab) {
+        const tHost = el(
+          "button",
+          `btn btn-mini ${typesTab === "host" ? "active-tab" : ""}`,
+          t("types.hostTab"),
+        );
+        tHost.addEventListener("click", () => {
+          typesTab = "host";
+          render();
+        });
+        tabs.append(tHost);
+      } else if (typesTab === "host") {
+        typesTab = "custom";
+      }
 
       const typesToolbar = el("div", "types-toolbar");
       typesToolbar.append(tabs);
@@ -1570,17 +2362,19 @@ function render(): void {
         const titleKeyByTab: Record<typeof typesTab, string> = {
           standard: "types.standardTypesTitle",
           regional: "types.regionalTypesTitle",
+          host: "types.hostTypesTitle",
           custom: "types.customTab",
         };
         const emptyKeyByTab: Record<typeof typesTab, string> = {
           standard: "types.empty",
           regional: "types.empty",
+          host: "types.empty",
           custom: "custom.empty",
         };
 
         const sectionHead = el("div", "types-section-head");
         sectionHead.append(el("h4", "entity-section-title", t(titleKeyByTab[typesTab])));
-        if (typesTab === "standard") {
+        if (typesTab === "standard" || typesTab === "host") {
           sectionHead.append(el("span", "readonly-badge", t("types.readOnly")));
         }
         body.append(sectionHead);
@@ -2009,7 +2803,7 @@ function renderFindings(r: Report): HTMLElement {
   const custom = r.custom_findings.filter((f) => f.count > 0);
   if (findings.length === 0) {
     if (custom.length === 0) {
-      wrap.append(el("div", "empty", "-"));
+      wrap.append(el("div", "empty", t("report.noPersonalData")));
       return wrap;
     }
   }
@@ -2021,13 +2815,16 @@ function renderFindings(r: Report): HTMLElement {
     if (f.redacted_examples.length) {
       const ex = el("div", "examples");
       for (const [index, e] of f.redacted_examples.entries()) {
-        const key = exampleKey(f.category, index);
-        const maybeRaw = expandedRedacted.has(key) ? getRevealedValue(f.category, index) : null;
+        const key = exampleKey("builtin", f.category, index);
+        const maybeRaw = expandedRedacted.has(key)
+          ? (revealedExampleValues.get(key) ?? null)
+          : null;
         const chip = el("button", "example-toggle", maybeRaw ?? e);
+        (chip as HTMLButtonElement).disabled = !selectedFileId;
         chip.title = expandedRedacted.has(key) ? t("actions.hide") : t("actions.revealOne");
         chip.addEventListener("click", (ev) => {
           ev.preventDefault();
-          void toggleRedactedExample(f.category, index);
+          void toggleRedactedExample("builtin", f.category, index, e);
         });
         ex.append(chip);
       }
@@ -2043,8 +2840,19 @@ function renderFindings(r: Report): HTMLElement {
     box.append(title);
     if (f.redacted_examples.length) {
       const ex = el("div", "examples");
-      for (const e of f.redacted_examples) {
-        ex.append(el("code", "example", e));
+      for (const [index, e] of f.redacted_examples.entries()) {
+        const key = exampleKey("custom", f.category, index);
+        const maybeRaw = expandedRedacted.has(key)
+          ? (revealedExampleValues.get(key) ?? null)
+          : null;
+        const chip = el("button", "example-toggle", maybeRaw ?? e);
+        (chip as HTMLButtonElement).disabled = !selectedFileId;
+        chip.title = expandedRedacted.has(key) ? t("actions.hide") : t("actions.revealOne");
+        chip.addEventListener("click", (ev) => {
+          ev.preventDefault();
+          void toggleRedactedExample("custom", f.category, index, e);
+        });
+        ex.append(chip);
       }
       box.append(ex);
     }
@@ -2183,17 +2991,35 @@ function onGlobalKeydown(ev: KeyboardEvent): void {
     menuOpen = false;
     render();
     ev.preventDefault();
+    return;
+  }
+
+  if (scanMenuOpen) {
+    scanMenuOpen = false;
+    render();
+    ev.preventDefault();
   }
 }
 
 function onGlobalClick(ev: MouseEvent): void {
   const target = ev.target as HTMLElement | null;
   if (!target) return;
-  if (target.closest(".filter-dropdown")) return;
-  if (!riskFilterOpen && !typeFilterOpen) return;
-  riskFilterOpen = false;
-  typeFilterOpen = false;
-  render();
+  let shouldRender = false;
+
+  if (!target.closest(".filter-dropdown") && (riskFilterOpen || typeFilterOpen)) {
+    riskFilterOpen = false;
+    typeFilterOpen = false;
+    shouldRender = true;
+  }
+
+  if (!target.closest(".scan-split") && scanMenuOpen) {
+    scanMenuOpen = false;
+    shouldRender = true;
+  }
+
+  if (shouldRender) {
+    render();
+  }
 }
 
 async function main(): Promise<void> {
@@ -2208,6 +3034,7 @@ async function main(): Promise<void> {
   });
 
   await refreshSettings();
+  await refreshAgentsState();
   await refreshTypeDefinitions();
   await refreshAlerts();
 

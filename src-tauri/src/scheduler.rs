@@ -70,6 +70,11 @@ pub async fn run_initial_scan(
     state: AppState,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
+    if crate::agents::is_agent_device_disabled(&state.db).await? {
+        tracing::debug!("scheduler:initial_scan_skipped_device_disabled");
+        return Ok(());
+    }
+
     let ignored_snapshot = state
         .db
         .get_ignored_values_snapshot()
@@ -190,9 +195,9 @@ async fn initial_process_file(
 
     let scan = match scanner::scan_path_with_ignore_snapshot(
         &path.to_string_lossy(),
-        &settings,
-        &custom_detectors,
-        &entity_settings,
+        settings,
+        custom_detectors,
+        entity_settings,
         scanner::ScanMode::Redacted,
         ignored,
     )
@@ -218,6 +223,8 @@ async fn initial_process_file(
         return Ok(());
     }
 
+    crate::cache_scan_reveal_data(state, file_id, scan.reveal_cache.clone()).await;
+
     let suggestion = super::watcher::suggestion_for(&scan.risk_level);
     let _ = state
         .db
@@ -235,6 +242,13 @@ async fn initial_process_file(
         .await?;
 
     super::watcher::schedule_reminders(&state.db, settings, file_id, now).await?;
+
+    let db_for_upload = state.db.clone();
+    tokio::spawn(async move {
+        if let Err(error) = crate::agents::send_alert_if_agent(db_for_upload, file_id).await {
+            tracing::debug!(file_id, "agent alert upload skipped/failed: {}", error);
+        }
+    });
 
     // Do not emit AlertCreated on initial scan to avoid notification spam.
     Ok(())

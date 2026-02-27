@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::collections::BTreeMap;
 
 pub type FileId = i64;
 
@@ -80,6 +81,26 @@ pub struct EntitySetting {
     pub threshold: Option<f64>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentsMode {
+    Agent,
+    Server,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentsState {
+    pub mode: AgentsMode,
+    pub server_listen_addr: Option<String>,
+    pub paired_server_url: Option<String>,
+    pub agent_enabled: bool,
+    pub paired_at: Option<i64>,
+    pub pair_expires_at: Option<i64>,
+    pub pair_expired: bool,
+    pub server_pair_code: Option<String>,
+    pub server_pair_code_expires_at: Option<i64>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RevealedFindings {
     pub by_category: Vec<RevealedCategory>,
@@ -106,6 +127,18 @@ pub struct ScanSummary {
     pub custom_findings: Vec<CustomFinding>,
     pub weak_zip_encryption: bool,
     pub revealed: Option<RevealedFindings>,
+    pub reveal_cache: RevealCache,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RevealCache {
+    pub by_category: BTreeMap<String, Vec<RevealPair>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RevealPair {
+    pub redacted: String,
+    pub clear: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,14 +1,15 @@
 #![allow(clippy::needless_return)]
 
+mod agents;
 mod contextual;
 mod db;
 mod pii;
-mod type_catalog;
 mod scanner;
 mod scheduler;
 mod secrets;
 mod settings;
 mod tray;
+mod type_catalog;
 mod types;
 mod user_values;
 mod watcher;
@@ -19,14 +20,30 @@ mod integration_dataset_tests;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    net::IpAddr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::sync::Mutex;
 
 use crate::db::Db;
 use crate::settings::Settings;
-use crate::types::{AppEvent, CustomDetector, FileId, NewCustomDetector, Report, UiAlert};
 use crate::type_catalog::TypeDefinition;
+use crate::types::{
+    AgentsMode, AgentsState, AppEvent, CustomDetector, FileId, NewCustomDetector, PiiCategory,
+    Report, RevealCache, UiAlert,
+};
+
+const DEFAULT_AGENT_PAIR_DAYS: i64 = 14;
+const DEFAULT_SERVER_CODE_MINUTES: i64 = 30;
+const MAX_REVEAL_VALUES_PER_CATEGORY: usize = 100;
+const MAX_REVEAL_VALUES_PER_FILE: usize = 500;
 
 fn is_text_neutralizable_ext(ext: &str) -> bool {
     matches!(
@@ -48,14 +65,304 @@ fn is_text_neutralizable_ext(ext: &str) -> bool {
     )
 }
 
+fn now_ts() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
+fn parse_i64_opt(value: Option<String>) -> Option<i64> {
+    value.and_then(|v| v.parse::<i64>().ok())
+}
+
+fn generate_pair_code() -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let mut bytes = [0u8; 24];
+    let _ = getrandom::fill(&mut bytes);
+    let mut out = String::with_capacity(24);
+    for b in &bytes {
+        out.push(ALPHABET[(*b as usize) % ALPHABET.len()] as char);
+    }
+    out
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
+struct PairTokenClaims {
+    iss: String,
+    pairing_code: String,
+    exp: i64,
+    iat: i64,
+    jti: String,
+}
+
+#[allow(dead_code)]
+fn build_pair_token(server_url: &str, pairing_code: &str, exp: i64) -> Result<String, String> {
+    let header = serde_json::json!({ "alg": "none", "typ": "JWT" });
+    let claims = PairTokenClaims {
+        iss: server_url.to_string(),
+        pairing_code: pairing_code.to_string(),
+        exp,
+        iat: now_ts(),
+        jti: format!("pc_{}", generate_pair_code()),
+    };
+    let header_enc = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&header).map_err(|e| format!("pair token header error: {}", e))?,
+    );
+    let claims_enc = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&claims).map_err(|e| format!("pair token claims error: {}", e))?,
+    );
+    Ok(format!("{}.{}.nosig", header_enc, claims_enc))
+}
+
+#[allow(dead_code)]
+fn parse_pair_token(pair_token: &str) -> Result<PairTokenClaims, String> {
+    let trimmed = pair_token.trim();
+    if trimmed.is_empty() {
+        return Err("pair token is required".to_string());
+    }
+    let parts: Vec<&str> = trimmed.split('.').collect();
+    if parts.len() != 3 {
+        return Err("invalid pair token format".to_string());
+    }
+    let payload_raw = URL_SAFE_NO_PAD
+        .decode(parts[1])
+        .map_err(|_| "invalid pair token payload".to_string())?;
+    let claims: PairTokenClaims =
+        serde_json::from_slice(&payload_raw).map_err(|_| "invalid pair token JSON".to_string())?;
+    if claims.iss.trim().is_empty() || claims.pairing_code.trim().is_empty() {
+        return Err("invalid pair token claims".to_string());
+    }
+    if claims.exp <= now_ts() {
+        return Err("pair token expired".to_string());
+    }
+    Ok(claims)
+}
+
+fn is_internet_server_url(server_url: &str) -> Result<bool, String> {
+    let parsed = url::Url::parse(server_url).map_err(|_| "invalid server URL".to_string())?;
+    let scheme = parsed.scheme();
+    if scheme != "https" && scheme != "http" {
+        return Err("server URL must use http or https".to_string());
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "server URL must include a host".to_string())?
+        .to_ascii_lowercase();
+
+    if host == "localhost" || host.ends_with(".local") {
+        return Ok(false);
+    }
+
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        let is_local = match ip {
+            IpAddr::V4(v4) => {
+                v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_unspecified()
+            }
+            IpAddr::V6(v6) => {
+                v6.is_loopback()
+                    || v6.is_unique_local()
+                    || v6.is_unicast_link_local()
+                    || v6.is_unspecified()
+            }
+        };
+        return Ok(!is_local);
+    }
+
+    Ok(true)
+}
+
+async fn load_agents_state(db: &Db) -> Result<AgentsState, String> {
+    let mut mode = AgentsMode::Agent;
+    if let Some(raw_mode) = db.get_kv("agents_mode").await.map_err(|e| e.to_string())? {
+        if raw_mode == "server" {
+            mode = AgentsMode::Server;
+        }
+    }
+
+    let paired_server_url = db
+        .get_kv("agent_server_url")
+        .await
+        .map_err(|e| e.to_string())?;
+    let agent_enabled = db
+        .get_kv("agent_device_enabled")
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|v| !v.eq_ignore_ascii_case("false"))
+        .unwrap_or(true);
+    let server_listen_addr = db
+        .get_kv("server_listen_addr")
+        .await
+        .map_err(|e| e.to_string())?;
+    let paired_at = parse_i64_opt(
+        db.get_kv("agent_paired_at")
+            .await
+            .map_err(|e| e.to_string())?,
+    );
+    let pair_expires_at = parse_i64_opt(
+        db.get_kv("agent_pair_expires_at")
+            .await
+            .map_err(|e| e.to_string())?,
+    );
+
+    let now = now_ts();
+    let pair_expired = pair_expires_at.is_some_and(|exp| exp <= now);
+    if pair_expired {
+        db.delete_kv("agent_server_url")
+            .await
+            .map_err(|e| e.to_string())?;
+        db.delete_kv("agent_paired_at")
+            .await
+            .map_err(|e| e.to_string())?;
+        db.delete_kv("agent_token")
+            .await
+            .map_err(|e| e.to_string())?;
+        db.delete_kv("agent_device_id")
+            .await
+            .map_err(|e| e.to_string())?;
+        db.delete_kv("agent_device_enabled")
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    let mut server_pair_code = db
+        .get_kv("server_pair_code")
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut server_pair_code_expires_at = parse_i64_opt(
+        db.get_kv("server_pair_code_expires_at")
+            .await
+            .map_err(|e| e.to_string())?,
+    );
+    if server_pair_code_expires_at.is_some_and(|exp| exp <= now) {
+        db.delete_kv("server_pair_code")
+            .await
+            .map_err(|e| e.to_string())?;
+        db.delete_kv("server_pair_secret")
+            .await
+            .map_err(|e| e.to_string())?;
+        db.delete_kv("server_pair_code_expires_at")
+            .await
+            .map_err(|e| e.to_string())?;
+        server_pair_code = None;
+        server_pair_code_expires_at = None;
+    }
+
+    Ok(AgentsState {
+        mode,
+        server_listen_addr,
+        paired_server_url: if pair_expired {
+            None
+        } else {
+            paired_server_url
+        },
+        agent_enabled,
+        paired_at: if pair_expired { None } else { paired_at },
+        pair_expires_at: if pair_expired { None } else { pair_expires_at },
+        pair_expired,
+        server_pair_code,
+        server_pair_code_expires_at,
+    })
+}
+
 #[derive(Clone)]
 struct AppState {
     db: Arc<Db>,
     settings: Arc<Mutex<Settings>>,
     watchers: Arc<Mutex<Option<watcher::WatchersCtrl>>>,
+    agents_server: Arc<Mutex<Option<agents::AgentsServerRuntime>>>,
     type_catalog: Arc<Mutex<type_catalog::TypeRegistry>>,
     scan_running: Arc<AtomicBool>,
     scan_cancel: Arc<AtomicBool>,
+    reveal_cache: Arc<Mutex<HashMap<FileId, RevealCache>>>,
+}
+
+fn parse_builtin_category(category: &str) -> Option<PiiCategory> {
+    match category {
+        "email" => Some(PiiCategory::Email),
+        "phone" => Some(PiiCategory::Phone),
+        "iban" => Some(PiiCategory::Iban),
+        "credit_card" => Some(PiiCategory::CreditCard),
+        "ip_address" => Some(PiiCategory::IpAddress),
+        "address" => Some(PiiCategory::Address),
+        "postal_code" => Some(PiiCategory::PostalCode),
+        "date_of_birth" => Some(PiiCategory::DateOfBirth),
+        "cookie" => Some(PiiCategory::Cookie),
+        "user_id" => Some(PiiCategory::UserId),
+        "secret" => Some(PiiCategory::Secret),
+        "file_name_signal" => Some(PiiCategory::FileNameSignal),
+        "weak_archive_encryption" => Some(PiiCategory::WeakArchiveEncryption),
+        _ => None,
+    }
+}
+
+fn trim_reveal_cache(cache: &mut RevealCache) {
+    let mut total = 0usize;
+    for values in cache.by_category.values_mut() {
+        if values.len() > MAX_REVEAL_VALUES_PER_CATEGORY {
+            values.truncate(MAX_REVEAL_VALUES_PER_CATEGORY);
+        }
+        total += values.len();
+    }
+
+    if total <= MAX_REVEAL_VALUES_PER_FILE {
+        return;
+    }
+
+    for values in cache.by_category.values_mut() {
+        while total > MAX_REVEAL_VALUES_PER_FILE && !values.is_empty() {
+            values.pop();
+            total -= 1;
+        }
+        if total <= MAX_REVEAL_VALUES_PER_FILE {
+            break;
+        }
+    }
+}
+
+pub(crate) async fn cache_scan_reveal_data(
+    state: &AppState,
+    file_id: FileId,
+    mut cache: RevealCache,
+) {
+    trim_reveal_cache(&mut cache);
+    let mut all = state.reveal_cache.lock().await;
+    all.insert(file_id, cache);
+}
+
+async fn reveal_from_cache(
+    state: &tauri::State<'_, AppState>,
+    file_id: FileId,
+    category: &str,
+    redacted_value: &str,
+) -> Result<Option<String>, String> {
+    let cache = state.reveal_cache.lock().await;
+    let Some(file_cache) = cache.get(&file_id) else {
+        return Ok(None);
+    };
+    let Some(values) = file_cache.by_category.get(category) else {
+        return Ok(None);
+    };
+
+    for pair in values {
+        if pair.redacted != redacted_value {
+            continue;
+        }
+        if let Some(cat) = parse_builtin_category(category) {
+            let ignored = state
+                .db
+                .is_user_value(cat, &pair.clear)
+                .await
+                .map_err(|e| e.to_string())?;
+            if ignored {
+                continue;
+            }
+        }
+        return Ok(Some(pair.clear.clone()));
+    }
+
+    Ok(None)
 }
 
 #[tauri::command]
@@ -78,38 +385,127 @@ async fn get_report(
         .map_err(|e| e.to_string())?;
 
     if reveal {
-        let settings = state.settings.lock().await.clone();
-        let custom_detectors = yaml_custom_detectors(state.inner()).await;
-        let entity_settings = state
-            .db
-            .get_entity_settings()
-            .await
-            .map_err(|e| e.to_string())?;
-        // Do not store revealed values in DB; rescan on-demand.
-        let scan = scanner::scan_path_with_settings(
-            &report.path,
-            &settings,
-            &custom_detectors,
-            &entity_settings,
-            scanner::ScanMode::Reveal,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-        let mut revealed = scan.revealed.unwrap_or_default();
-        for cat in &mut revealed.by_category {
-            for v in &mut cat.values {
-                let is_ignored = state
-                    .db
-                    .is_user_value(cat.category.clone(), &v.value)
-                    .await
-                    .unwrap_or(false);
-                v.is_ignored = is_ignored;
+        let file_cache = {
+            let cache = state.reveal_cache.lock().await;
+            cache.get(&file_id).cloned()
+        };
+        if let Some(file_cache) = file_cache {
+            let mut by_category = Vec::new();
+            for (category, pairs) in &file_cache.by_category {
+                let mut values = Vec::new();
+                for pair in pairs {
+                    let is_ignored = if let Some(cat) = parse_builtin_category(category) {
+                        state
+                            .db
+                            .is_user_value(cat, &pair.clear)
+                            .await
+                            .unwrap_or(false)
+                    } else {
+                        false
+                    };
+                    values.push(crate::types::RevealedValue {
+                        value: pair.clear.clone(),
+                        is_ignored,
+                    });
+                }
+
+                if let Some(cat) = parse_builtin_category(category) {
+                    by_category.push(crate::types::RevealedCategory {
+                        category: cat,
+                        values,
+                    });
+                }
             }
+            report.revealed = Some(crate::types::RevealedFindings { by_category });
         }
-        report.revealed = Some(revealed);
     }
 
     Ok(report)
+}
+
+#[tauri::command]
+async fn scan_path_on_demand(
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<Report, String> {
+    tracing::debug!(path, "command:scan_path_on_demand");
+
+    if crate::agents::is_agent_device_disabled(&state.db)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        return Err("agent is disabled by server".to_string());
+    }
+
+    let file_path = std::path::Path::new(&path);
+    if !file_path.is_file() {
+        return Err("path is not a file".to_string());
+    }
+
+    let settings = state.settings.lock().await.clone();
+    if settings.is_ignored_extension(file_path) {
+        return Err("file extension is ignored by settings".to_string());
+    }
+
+    let metadata = std::fs::metadata(file_path).map_err(|e| e.to_string())?;
+    let size = metadata.len() as i64;
+    let mtime = metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let now = now_ts();
+
+    let custom_detectors = yaml_custom_detectors(state.inner()).await;
+    let entity_settings = state
+        .db
+        .get_entity_settings()
+        .await
+        .map_err(|e| e.to_string())?;
+    let ignored_snapshot = state
+        .db
+        .get_ignored_values_snapshot()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let scan = scanner::scan_path_with_ignore_snapshot(
+        &path,
+        &settings,
+        &custom_detectors,
+        &entity_settings,
+        scanner::ScanMode::Redacted,
+        Some(&ignored_snapshot),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(Report {
+        file_id: 0,
+        path,
+        first_seen_at: now,
+        last_seen_at: now,
+        size,
+        mtime,
+        risk_level: scan.risk_level,
+        risk_score: scan.risk_score,
+        reasons: scan.reasons,
+        findings: scan.findings,
+        custom_findings: scan.custom_findings,
+        weak_zip_encryption: scan.weak_zip_encryption,
+        suggestion: watcher::suggestion_for(&scan.risk_level),
+        revealed: None,
+    })
+}
+
+#[tauri::command]
+async fn reveal_redacted_value(
+    state: tauri::State<'_, AppState>,
+    file_id: FileId,
+    category: String,
+    redacted_value: String,
+) -> Result<Option<String>, String> {
+    reveal_from_cache(&state, file_id, &category, &redacted_value).await
 }
 
 // Ignore commands for values detected in revealed findings.
@@ -184,11 +580,18 @@ async fn delete_file_to_trash(
         .db
         .mark_deleted(file_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    let mut cache = state.reveal_cache.lock().await;
+    cache.remove(&file_id);
+    Ok(())
 }
 
 #[tauri::command]
-async fn neutralize_file(state: tauri::State<'_, AppState>, file_id: FileId) -> Result<i64, String> {
+async fn neutralize_file(
+    state: tauri::State<'_, AppState>,
+    file_id: FileId,
+) -> Result<i64, String> {
     tracing::debug!(file_id, "command:neutralize_file");
     let path = state
         .db
@@ -357,6 +760,12 @@ async fn set_settings(
 #[tauri::command]
 async fn scan_now(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<(), String> {
     tracing::debug!("command:scan_now");
+    if agents::is_agent_device_disabled(&state.db)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        return Err("agent is disabled by server".to_string());
+    }
     if state.scan_running.swap(true, Ordering::SeqCst) {
         return Err("scan already running".to_string());
     }
@@ -380,7 +789,226 @@ async fn stop_scan(state: tauri::State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 async fn clear_alerts(state: tauri::State<'_, AppState>) -> Result<(), String> {
     tracing::debug!("command:clear_alerts");
-    state.db.clear_alerts().await.map_err(|e| e.to_string())
+    state.db.clear_alerts().await.map_err(|e| e.to_string())?;
+    state.reveal_cache.lock().await.clear();
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_agents_state(state: tauri::State<'_, AppState>) -> Result<AgentsState, String> {
+    load_agents_state(&state.db).await
+}
+
+#[tauri::command]
+async fn set_agents_mode(
+    state: tauri::State<'_, AppState>,
+    mode: AgentsMode,
+) -> Result<AgentsState, String> {
+    let db = &state.db;
+    let mode_value = match mode {
+        AgentsMode::Agent => "agent",
+        AgentsMode::Server => "server",
+    };
+    db.set_kv("agents_mode", mode_value)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    match mode {
+        AgentsMode::Agent => {
+            db.delete_kv("server_pair_code")
+                .await
+                .map_err(|e| e.to_string())?;
+            db.delete_kv("server_pair_secret")
+                .await
+                .map_err(|e| e.to_string())?;
+            db.delete_kv("server_pair_code_expires_at")
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        AgentsMode::Server => {
+            db.delete_kv("agent_server_url")
+                .await
+                .map_err(|e| e.to_string())?;
+            db.delete_kv("agent_paired_at")
+                .await
+                .map_err(|e| e.to_string())?;
+            db.delete_kv("agent_pair_expires_at")
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    let out = load_agents_state(db).await?;
+    agents::sync_server_runtime(state.inner().clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+#[tauri::command]
+async fn create_server_pair_code(
+    state: tauri::State<'_, AppState>,
+    valid_minutes: Option<i64>,
+) -> Result<AgentsState, String> {
+    let db = &state.db;
+    db.set_kv("agents_mode", "server")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let minutes = valid_minutes
+        .unwrap_or(DEFAULT_SERVER_CODE_MINUTES)
+        .clamp(5, 24 * 60);
+    let now = now_ts();
+    let expires_at = now + minutes * 60;
+    let secret_code = generate_pair_code();
+
+    agents::sync_server_runtime(state.inner().clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    let server_url = db
+        .get_kv("server_listen_addr")
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "server is not listening yet".to_string())?;
+    let token = build_pair_token(&server_url, &secret_code, expires_at)?;
+
+    db.set_kv("server_pair_code", &token)
+        .await
+        .map_err(|e| e.to_string())?;
+    db.set_kv("server_pair_secret", &secret_code)
+        .await
+        .map_err(|e| e.to_string())?;
+    db.set_kv("server_pair_code_expires_at", &expires_at.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let out = load_agents_state(db).await?;
+    Ok(out)
+}
+
+#[tauri::command]
+async fn pair_as_agent(
+    state: tauri::State<'_, AppState>,
+    pair_token: String,
+    internet_confirmed: bool,
+    valid_days: Option<i64>,
+) -> Result<AgentsState, String> {
+    let db = &state.db;
+    let claims = parse_pair_token(&pair_token)?;
+    let trimmed_url = claims.iss.trim();
+
+    let internet_url = is_internet_server_url(trimmed_url)?;
+    if internet_url && !internet_confirmed {
+        return Err("internet_confirmation_required".to_string());
+    }
+
+    let days = valid_days.unwrap_or(DEFAULT_AGENT_PAIR_DAYS).clamp(1, 180);
+    let now = now_ts();
+    let expires_at =
+        agents::pair_on_remote_server(db, trimmed_url, &claims.pairing_code, days).await?;
+
+    db.set_kv("agents_mode", "agent")
+        .await
+        .map_err(|e| e.to_string())?;
+    db.set_kv("agent_server_url", trimmed_url)
+        .await
+        .map_err(|e| e.to_string())?;
+    db.set_kv("agent_paired_at", &now.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
+    db.set_kv("agent_pair_expires_at", &expires_at.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
+    db.set_kv("agent_device_enabled", "true")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.delete_kv("server_pair_code")
+        .await
+        .map_err(|e| e.to_string())?;
+    db.delete_kv("server_pair_secret")
+        .await
+        .map_err(|e| e.to_string())?;
+    db.delete_kv("server_pair_code_expires_at")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let out = load_agents_state(db).await?;
+    agents::sync_server_runtime(state.inner().clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+#[tauri::command]
+async fn unpair_agent(state: tauri::State<'_, AppState>) -> Result<AgentsState, String> {
+    let db = &state.db;
+    db.delete_kv("agent_server_url")
+        .await
+        .map_err(|e| e.to_string())?;
+    db.delete_kv("agent_paired_at")
+        .await
+        .map_err(|e| e.to_string())?;
+    db.delete_kv("agent_pair_expires_at")
+        .await
+        .map_err(|e| e.to_string())?;
+    db.delete_kv("agent_token")
+        .await
+        .map_err(|e| e.to_string())?;
+    db.delete_kv("agent_device_id")
+        .await
+        .map_err(|e| e.to_string())?;
+    db.delete_kv("agent_device_enabled")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let out = load_agents_state(db).await?;
+    agents::sync_server_runtime(state.inner().clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+#[tauri::command]
+async fn list_server_devices(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<agents::ServerDeviceView>, String> {
+    agents::list_server_devices(&state.db)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_server_device_enabled(
+    state: tauri::State<'_, AppState>,
+    device_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    agents::set_server_device_enabled(&state.db, &device_id, enabled)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn unpair_server_device(
+    state: tauri::State<'_, AppState>,
+    device_id: String,
+) -> Result<(), String> {
+    agents::unpair_server_device(&state.db, &device_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn list_server_alerts(
+    state: tauri::State<'_, AppState>,
+    limit: Option<i64>,
+) -> Result<Vec<agents::ServerAlertView>, String> {
+    let raw_limit = limit.unwrap_or(50);
+    let safe_limit = raw_limit.clamp(1, 500) as usize;
+    agents::list_server_alerts(&state.db, safe_limit)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 fn validate_custom_detector_input(input: &NewCustomDetector) -> Result<(), String> {
@@ -518,9 +1146,7 @@ pub fn run() {
         log_filter = log_filter.add_directive(directive);
     }
 
-    tracing_subscriber::fmt()
-        .with_env_filter(log_filter)
-        .init();
+    tracing_subscriber::fmt().with_env_filter(log_filter).init();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -549,16 +1175,21 @@ pub fn run() {
                 db.save_settings(&settings).await?;
 
                 let locale = app_locale();
-                let custom_types_file = user_custom_types_file(&app_handle)
-                    .map_err(anyhow::Error::msg)?;
+                let custom_types_file =
+                    user_custom_types_file(&app_handle).map_err(anyhow::Error::msg)?;
+                let host_types_file =
+                    user_host_types_file(&app_handle).map_err(anyhow::Error::msg)?;
                 let type_catalog = match type_catalog::TypeRegistry::load(
                     &locale,
                     Some(custom_types_file.as_path()),
+                    Some(host_types_file.as_path()),
                 ) {
                     Ok(reg) => reg,
                     Err(e) => {
                         tracing::warn!("Failed to load type catalog: {}", e);
-                        type_catalog::TypeRegistry { types: std::collections::HashMap::new() }
+                        type_catalog::TypeRegistry {
+                            types: std::collections::HashMap::new(),
+                        }
                     }
                 };
 
@@ -566,9 +1197,11 @@ pub fn run() {
                     db: Arc::new(db),
                     settings: Arc::new(Mutex::new(settings.clone())),
                     watchers: Arc::new(Mutex::new(None)),
+                    agents_server: Arc::new(Mutex::new(None)),
                     scan_running: Arc::new(AtomicBool::new(false)),
                     scan_cancel: Arc::new(AtomicBool::new(false)),
                     type_catalog: Arc::new(Mutex::new(type_catalog)),
+                    reveal_cache: Arc::new(Mutex::new(HashMap::new())),
                 };
 
                 app_handle.manage(state.clone());
@@ -597,6 +1230,7 @@ pub fn run() {
                 tray::setup_tray(&app_handle)?;
 
                 // Start background tasks
+                agents::sync_server_runtime(state.clone()).await?;
                 watcher::start_watchers(&app_handle, state.clone()).await?;
                 scheduler::start_scheduler(&app_handle, state.clone()).await?;
                 scheduler::enqueue_initial_scan(&app_handle, state.clone()).await;
@@ -610,6 +1244,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_alerts,
             get_report,
+            scan_path_on_demand,
+            reveal_redacted_value,
             ignore_value,
             unignore_value,
             ignore_file,
@@ -621,6 +1257,18 @@ pub fn run() {
             set_settings,
             scan_now,
             clear_alerts,
+            get_agents_state,
+            set_agents_mode,
+            create_server_pair_code,
+            pair_as_agent,
+            unpair_agent,
+            list_server_devices,
+            set_server_device_enabled,
+            unpair_server_device,
+            list_server_alerts,
+            get_server_host_types_yaml,
+            set_server_host_types_yaml,
+            sync_host_types_from_server,
             list_custom_detectors,
             create_custom_detector,
             update_custom_detector,
@@ -680,7 +1328,9 @@ async fn update_contextual_entity(
 }
 
 #[tauri::command]
-async fn list_type_definitions(state: tauri::State<'_, AppState>) -> Result<Vec<TypeDefinition>, String> {
+async fn list_type_definitions(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<TypeDefinition>, String> {
     let catalog = state.type_catalog.lock().await;
     let mut types: Vec<TypeDefinition> = catalog.types.values().cloned().collect();
     types.sort_by(|a, b| a.id.cmp(&b.id));
@@ -691,14 +1341,19 @@ async fn list_type_definitions(state: tauri::State<'_, AppState>) -> Result<Vec<
 async fn reload_type_catalog(app: AppHandle) -> Result<String, String> {
     let locale = app_locale();
     let custom_types_file = user_custom_types_file(&app)?;
-    match type_catalog::TypeRegistry::load(&locale, Some(custom_types_file.as_path())) {
+    let host_types_file = user_host_types_file(&app)?;
+    match type_catalog::TypeRegistry::load(
+        &locale,
+        Some(custom_types_file.as_path()),
+        Some(host_types_file.as_path()),
+    ) {
         Ok(new_catalog) => {
             let app_state = app.state::<AppState>();
             let mut catalog = app_state.type_catalog.lock().await;
             *catalog = new_catalog;
             Ok("Type catalog reloaded successfully".to_string())
         }
-        Err(e) => Err(format!("Failed to reload type catalog: {}", e))
+        Err(e) => Err(format!("Failed to reload type catalog: {}", e)),
     }
 }
 
@@ -715,12 +1370,109 @@ async fn upsert_custom_type_definition(
     reload_type_catalog(app).await
 }
 
+#[tauri::command]
+async fn get_server_host_types_yaml(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    agents::get_server_host_types_yaml(&state.db)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_server_host_types_yaml(
+    state: tauri::State<'_, AppState>,
+    yaml: String,
+) -> Result<i64, String> {
+    agents::set_server_host_types_yaml(&state.db, &yaml)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn sync_host_types_from_server(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let mode = state
+        .db
+        .get_kv("agents_mode")
+        .await
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| "agent".to_string());
+    if mode != "agent" {
+        return Err("host types sync is available in agent mode only".to_string());
+    }
+
+    let server_url = state
+        .db
+        .get_kv("agent_server_url")
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "agent is not paired".to_string())?;
+    let token = state
+        .db
+        .get_kv("agent_token")
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "agent token is missing".to_string())?;
+
+    let policy = agents::fetch_host_types_policy(&state.db, &server_url, &token).await?;
+    state
+        .db
+        .set_kv("agent_pair_expires_at", &policy.pair_expires_at.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
+    state
+        .db
+        .set_kv("agent_device_enabled", &policy.device_enabled.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
+    if !policy.device_enabled {
+        return Err("agent is disabled by server".to_string());
+    }
+
+    let current_version = parse_i64_opt(
+        state
+            .db
+            .get_kv("agent_host_types_version")
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .unwrap_or_default();
+    if policy.version <= current_version {
+        return Ok("Host types already up to date".to_string());
+    }
+
+    let host_types_file = user_host_types_file(&app)?;
+    if let Some(parent) = host_types_file.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create {}: {}", parent.display(), e))?;
+    }
+    std::fs::write(&host_types_file, policy.host_types_yaml)
+        .map_err(|e| format!("Failed to write {}: {}", host_types_file.display(), e))?;
+
+    state
+        .db
+        .set_kv("agent_host_types_version", &policy.version.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    reload_type_catalog(app).await
+}
+
 fn user_custom_types_file(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     let config_dir = app
         .path()
         .app_config_dir()
         .map_err(|e| format!("Failed to resolve app config dir: {}", e))?;
     Ok(config_dir.join("types").join("custom.yaml"))
+}
+
+fn user_host_types_file(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to resolve app config dir: {}", e))?;
+    Ok(config_dir.join("types").join("host.yaml"))
 }
 
 fn app_locale() -> String {

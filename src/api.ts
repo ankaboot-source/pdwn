@@ -133,6 +133,18 @@ export async function scanNow(): Promise<void> {
   await invoke("scan_now");
 }
 
+export async function scanPathOnDemand(path: string): Promise<Report> {
+  return invoke("scan_path_on_demand", { path });
+}
+
+export async function revealRedactedValue(
+  fileId: number,
+  category: string,
+  redactedValue: string,
+): Promise<string | null> {
+  return invoke("reveal_redacted_value", { fileId, category, redactedValue });
+}
+
 export async function stopScan(): Promise<void> {
   await invoke("stop_scan");
 }
@@ -213,6 +225,40 @@ export type FilenameKeyword = {
   score: number;
 };
 
+export type AgentsMode = "agent" | "server";
+
+export type AgentsState = {
+  mode: AgentsMode;
+  server_listen_addr: string | null;
+  paired_server_url: string | null;
+  agent_enabled: boolean;
+  paired_at: number | null;
+  pair_expires_at: number | null;
+  pair_expired: boolean;
+  server_pair_code: string | null;
+  server_pair_code_expires_at: number | null;
+};
+
+export type ServerDevice = {
+  device_id: string;
+  device_name: string;
+  paired_at: number;
+  expires_at: number;
+  enabled: boolean;
+  last_seen_at: number | null;
+};
+
+export type ServerAlert = {
+  device_id: string;
+  device_name: string;
+  path: string;
+  risk_level: string;
+  risk_score: number;
+  types: string[];
+  received_at: number;
+  last_seen_at: number;
+};
+
 export async function getEntitySettings(): Promise<EntitySetting[]> {
   return invoke("get_entity_settings");
 }
@@ -245,4 +291,60 @@ export async function reloadTypeCatalog(): Promise<string> {
 
 export async function upsertCustomTypeDefinition(input: TypeDefinition): Promise<string> {
   return invoke("upsert_custom_type_definition", { input });
+}
+
+export async function getAgentsState(): Promise<AgentsState> {
+  return invoke("get_agents_state");
+}
+
+export async function setAgentsMode(mode: AgentsMode): Promise<AgentsState> {
+  return invoke("set_agents_mode", { mode });
+}
+
+export async function createServerPairCode(validMinutes = 30): Promise<AgentsState> {
+  return invoke("create_server_pair_code", { validMinutes });
+}
+
+export async function pairAsAgent(
+  pairToken: string,
+  internetConfirmed: boolean,
+  validDays = 14,
+): Promise<AgentsState> {
+  return invoke("pair_as_agent", {
+    pairToken,
+    internetConfirmed,
+    validDays,
+  });
+}
+
+export async function unpairAgent(): Promise<AgentsState> {
+  return invoke("unpair_agent");
+}
+
+export async function listServerDevices(): Promise<ServerDevice[]> {
+  return invoke("list_server_devices");
+}
+
+export async function setServerDeviceEnabled(deviceId: string, enabled: boolean): Promise<void> {
+  await invoke("set_server_device_enabled", { deviceId, enabled });
+}
+
+export async function unpairServerDevice(deviceId: string): Promise<void> {
+  await invoke("unpair_server_device", { deviceId });
+}
+
+export async function listServerAlerts(limit = 50): Promise<ServerAlert[]> {
+  return invoke("list_server_alerts", { limit });
+}
+
+export async function getServerHostTypesYaml(): Promise<string> {
+  return invoke("get_server_host_types_yaml");
+}
+
+export async function setServerHostTypesYaml(yaml: string): Promise<number> {
+  return invoke("set_server_host_types_yaml", { yaml });
+}
+
+export async function syncHostTypesFromServer(): Promise<string> {
+  return invoke("sync_host_types_from_server");
 }
