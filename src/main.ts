@@ -1475,7 +1475,7 @@ function render(): void {
   scanBtn.addEventListener("click", () => void onScanFolders());
   scanWrap.append(scanBtn);
 
-  const scanToggleBtn = el("button", "btn scan-toggle") as HTMLButtonElement;
+  const scanToggleBtn = el("button", "btn scan-toggle", "▾") as HTMLButtonElement;
   scanToggleBtn.title = t("actions.scanOptions");
   scanToggleBtn.disabled = isScanning;
   scanToggleBtn.addEventListener("click", (ev) => {
