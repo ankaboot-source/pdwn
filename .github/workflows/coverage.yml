@@ -33,7 +33,7 @@ jobs:
         run: cargo llvm-cov --manifest-path src-tauri/Cargo.toml --all-features --workspace --lcov --output-path lcov.info
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rust-coverage-lcov
           path: lcov.info
