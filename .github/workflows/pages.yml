@@ -42,7 +42,7 @@ jobs:
         run: mkdir -p website/assets/brand website/assets/screenshots && cp assets/pdwn-logo.png website/assets/brand/pdwn-logo.png && cp assets/pdwn-wordmark.png website/assets/brand/pdwn-wordmark.png && [ -f assets/pdwn-screenshot-clean.png ] && cp assets/pdwn-screenshot-clean.png website/assets/screenshots/pdwn-screenshot-clean.png || true
 
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
         with:
           enablement: true
 
